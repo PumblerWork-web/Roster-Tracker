@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type DragEvent } from 'react';
 import { Link, Route, Switch, Router as WouterRouter, useLocation } from 'wouter';
-import { CalendarDays, CalendarRange, ChevronLeft, ChevronRight, Clock3, Download, FileUp, Heart, ImagePlus, Moon, NotebookPen, Plus, Search, Settings2, Sun, Trash2, UsersRound, X, Edit3, CalendarCheck2, Sparkles } from 'lucide-react';
-import { type DayType, type Entry, type EntryType, type Override, type Profile, type Store, DAY_TYPES, DEFAULT_DAY_TYPE_COLORS, DEFAULT_SHIFT_TIMES, ENTRY_TYPES, calculateMonthShiftHours, compressPhoto, dayTypeColor, dayTypeTextColor, fmtDate, formatHours, getShiftTimes, localDate, normalizeStore, persistStore, readStore, rosterType, shiftDate, shiftDurationMinutes, uid, validateStore } from '@/lib/roster';
+import { CalendarDays, CalendarRange, ChevronLeft, ChevronRight, Clock3, Download, FileUp, Heart, Moon, Plus, Settings2, Sun, Trash2, UsersRound, X, Edit3, CalendarCheck2, Sparkles } from 'lucide-react';
+import { type DayType, type Entry, type EntryType, type Override, type Profile, type Store, DAY_TYPES, DEFAULT_DAY_TYPE_COLORS, DEFAULT_SHIFT_TIMES, ENTRY_TYPES, calculateMonthShiftHours, dayTypeColor, dayTypeTextColor, fmtDate, formatHours, getShiftTimes, localDate, normalizeStore, persistStore, readStore, rosterType, shiftDate, shiftDurationMinutes, uid, validateStore } from '@/lib/roster';
 
 type ViewMode = 'month' | 'three' | 'year';
 const colors = ['#d9785c', '#4f8c83', '#d1a24e', '#7c82a9', '#b47786', '#6390a3', '#9b865c'];
@@ -159,9 +159,6 @@ function RosterTracker() {
           <Route path="/">
             <CalendarPage store={store} view={view} setView={setView} visibleDate={visibleDate} setVisibleDate={setVisibleDate} openDay={openDay} toggleProfile={toggleProfile} selectedProfile={selectedProfile} setSelectedProfile={setSelectedProfile} />
           </Route>
-          <Route path="/timeline">
-            <TimelinePage store={store} onEdit={(entry) => openDay(entry.date, entry.id)} onDelete={removeEntry} />
-          </Route>
           <Route path="/settings">
             <SettingsPage store={store} onSave={profileChanged} onDelete={deleteProfile} onToggleProfile={toggleProfile} onTheme={setTheme} onCompact={setCompact} onShiftColor={setShiftColor} onResetShiftColors={resetShiftColors} onExport={exportBackup} onImport={() => importRef.current?.click()} memoryUse={memoryUse} />
           </Route>
@@ -183,7 +180,6 @@ function SideNav({ location }: { location: string }) {
     <div className="side-label">Your space</div>
     <nav className="side-nav">
       <Link href="/" className={`nav-link ${location === '/' ? 'active' : ''}`} data-testid="link-calendar"><CalendarDays size={17} /><span>Calendar</span></Link>
-      <Link href="/timeline" className={`nav-link ${location === '/timeline' ? 'active' : ''}`} data-testid="link-timeline"><Clock3 size={17} /><span>Timeline</span></Link>
       <Link href="/settings" className={`nav-link ${location === '/settings' ? 'active' : ''}`} data-testid="link-settings"><Settings2 size={17} /><span>Settings</span></Link>
     </nav>
     <div className="sidebar-foot"><div className="sidebar-note">The shifts pass.<br />The good days stay.</div><div className="sidebar-date">{new Date().getFullYear()} · KEPT CLOSE</div></div>
@@ -193,14 +189,12 @@ function SideNav({ location }: { location: string }) {
 function MobileNav({ location }: { location: string }) {
   return <nav className="mobile-nav" aria-label="Main navigation">
     <Link href="/" className={`nav-link ${location === '/' ? 'active' : ''}`} data-testid="mobile-link-calendar"><CalendarDays size={16} /><span>Calendar</span></Link>
-    <Link href="/timeline" className={`nav-link ${location === '/timeline' ? 'active' : ''}`} data-testid="mobile-link-timeline"><Clock3 size={16} /><span>Timeline</span></Link>
     <Link href="/settings" className={`nav-link ${location === '/settings' ? 'active' : ''}`} data-testid="mobile-link-settings"><Settings2 size={16} /><span>Settings</span></Link>
   </nav>;
 }
 
 type CalendarProps = { store: Store; view: ViewMode; setView: (view: ViewMode) => void; visibleDate: Date; setVisibleDate: (date: Date) => void; openDay: (date: string) => void; toggleProfile: (id: string) => void; selectedProfile: string; setSelectedProfile: (id: string) => void };
 function CalendarPage({ store, view, setView, visibleDate, setVisibleDate, openDay, toggleProfile, selectedProfile, setSelectedProfile }: CalendarProps) {
-  const [, setLocation] = useLocation();
   const year = visibleDate.getFullYear();
   const next = (dir: number) => setVisibleDate(new Date(year, visibleDate.getMonth() + dir * (view === 'month' ? 1 : view === 'three' ? 3 : 12), 1));
   const activeProfiles = store.profiles.filter(p => p.visible && p.enabled);
@@ -228,7 +222,6 @@ function CalendarPage({ store, view, setView, visibleDate, setVisibleDate, openD
               <button className={`seg-button ${view === 'month' ? 'selected' : ''}`} data-testid="button-view-month" onClick={() => setView('month')}>Month</button>
               <button className={`seg-button ${view === 'three' ? 'selected' : ''}`} data-testid="button-view-three-month" onClick={() => setView('three')}>3 Month</button>
               <button className={`seg-button ${view === 'year' ? 'selected' : ''}`} data-testid="button-view-year" onClick={() => setView('year')}>12 Month</button>
-              <button className="seg-button" data-testid="button-view-timeline" onClick={() => setLocation('/timeline')}>Timeline</button>
             </div>
           </div>
         </div>
@@ -314,11 +307,14 @@ function DayContents({ date, profiles, store, openDay, compact = false, inMonth 
   const types = profiles.map(p => ({ profile: p, type: rosterType(p, key, store.overrides) }));
   const hasLeave = types.some(x => x.type === 'Annual Leave');
   const entries = store.entries.filter(e => e.date === key);
-  return <button type="button" className={`day-cell ${!inMonth ? 'outside' : ''} ${isToday ? 'today' : ''} ${hasLeave ? 'leave-day' : ''}`} data-testid={`button-calendar-day-${key}`} onClick={() => openDay(key)} aria-label={`${fmtDate(key)}, ${types.map(x => `${x.profile.name}: ${x.type}${x.type === 'Day Shift' || x.type === 'Night Shift' ? `, ${shiftTimeSummary(x.profile, x.type)}` : ''}`).join(', ')}`}>
+  const hasEvent = entries.some(entry => entry.type === 'event');
+  const hasOtherEntry = entries.some(entry => entry.type !== 'event');
+  return <button type="button" className={`day-cell ${!inMonth ? 'outside' : ''} ${isToday ? 'today' : ''} ${hasLeave ? 'leave-day' : ''}`} data-testid={`button-calendar-day-${key}`} onClick={() => openDay(key)} aria-label={`${fmtDate(key)}${hasEvent ? ', event scheduled' : ''}, ${types.map(x => `${x.profile.name}: ${x.type}${x.type === 'Day Shift' || x.type === 'Night Shift' ? `, ${shiftTimeSummary(x.profile, x.type)}` : ''}`).join(', ')}`}>
     <span className="day-number">{current}</span>
     <div className="day-labels">{types.slice(0, compact ? 1 : 3).map(({ profile, type }) => <span key={profile.id} className={`shift-chip ${type === 'Days Off' ? 'off' : ''}`} title={`${profile.name}: ${type}${type === 'Day Shift' || type === 'Night Shift' ? ` · ${shiftTimeSummary(profile, type)}` : ''}`} style={{ '--profile-color': profile.color, '--shift-color': dayTypeColor(type, store.preferences.dayTypeColors), '--shift-foreground': dayTypeTextColor(dayTypeColor(type, store.preferences.dayTypeColors)) } as CSSProperties}>{calendarShiftLabel(profile, type)}</span>)}{types.length > (compact ? 1 : 3) && <span className="shift-chip more-chip">+{types.length - (compact ? 1 : 3)}</span>}</div>
     {compact && hasLeave && <span className="entry-dot" aria-label="Annual leave" />}
-    {entries.length > 0 && <span className="entry-dot" aria-label={`${entries.length} personal entries`} />}
+    {hasEvent && <CalendarCheck2 className="calendar-event-marker" size={14} aria-label="Event scheduled" />}
+    {hasOtherEntry && <span className="entry-dot" aria-label="Personal entry" />}
   </button>;
 }
 
@@ -341,7 +337,8 @@ function MiniMonth({ date, profiles, store, openDay, compact = false }: { date: 
         const isToday = key === today;
         const dayTypes = profiles.map(profile => ({ profile, type: rosterType(profile, key, store.overrides) }));
         const hasLeave = dayTypes.some(x => x.type === 'Annual Leave');
-        return <button key={key} className={`mini-day ${!inMonth ? 'off-month' : ''} ${isToday ? 'is-today' : ''} ${hasLeave ? 'has-leave' : ''}`} data-testid={`button-mini-day-${key}`} aria-label={`${fmtDate(key)}${dayTypes.length ? `, ${dayTypes.map(x => `${x.profile.name}: ${x.type}`).join(', ')}` : ''}`} onClick={() => openDay(key)}>{d.getDate()}{!compact && <span className="mini-indicators">{dayTypes.slice(0, 4).map(x => <i key={x.profile.id} style={{ background: dayTypeColor(x.type, store.preferences.dayTypeColors) }} />)}</span>}</button>;
+        const hasEvent = store.entries.some(entry => entry.date === key && entry.type === 'event');
+        return <button key={key} className={`mini-day ${!inMonth ? 'off-month' : ''} ${isToday ? 'is-today' : ''} ${hasLeave ? 'has-leave' : ''}`} data-testid={`button-mini-day-${key}`} aria-label={`${fmtDate(key)}${hasEvent ? ', event scheduled' : ''}${dayTypes.length ? `, ${dayTypes.map(x => `${x.profile.name}: ${x.type}`).join(', ')}` : ''}`} onClick={() => openDay(key)}>{d.getDate()}{hasEvent && <CalendarCheck2 className="mini-event-marker" size={10} aria-hidden="true" />}{!compact && <span className="mini-indicators">{dayTypes.slice(0, 4).map(x => <i key={x.profile.id} style={{ background: dayTypeColor(x.type, store.preferences.dayTypeColors) }} />)}</span>}</button>;
       })}
     </div>
   </div>;
@@ -383,41 +380,11 @@ function calculateStats(profile: Profile, year: number, overrides: Override[]) {
   return { worked, nights, leave, holidays, breakDays: longest, nextLeave };
 }
 
-function TimelinePage({ store, onEdit, onDelete }: { store: Store; onEdit: (entry: Entry) => void; onDelete: (id: string) => void }) {
-  const [query, setQuery] = useState('');
-  const [person, setPerson] = useState('all');
-  const [year, setYear] = useState('all');
-  const [type, setType] = useState('all');
-  const years = useMemo(() => Array.from(new Set(store.entries.map(e => dateParts(e.date).getFullYear()))).sort((a, b) => b - a), [store.entries]);
-  const matches = store.entries.filter(e => {
-    const pName = store.profiles.find(p => p.id === e.profileId)?.name ?? '';
-    const haystack = `${e.title} ${e.text} ${pName}`.toLocaleLowerCase();
-    return (!query || haystack.includes(query.toLocaleLowerCase())) && (person === 'all' || e.profileId === person || (person === 'family' && !e.profileId)) && (year === 'all' || dateParts(e.date).getFullYear() === Number(year)) && (type === 'all' || e.type === type);
-  }).sort((a, b) => b.date.localeCompare(a.date) || b.updatedAt.localeCompare(a.updatedAt));
-  return <main className="page-wrap">
-    <div className="page-heading"><div><div className="eyebrow">The days worth keeping</div><h1 className="page-title">A life in little notes.</h1><p className="page-subtitle">Memories, plans and the everyday things you don't want to lose.</p></div></div>
-    <div className="timeline-tools">
-      <div className="search-box"><Search size={15} /><input type="search" placeholder="Search notes and titles" aria-label="Search timeline" value={query} onChange={e => setQuery(e.target.value)} data-testid="input-timeline-search" /></div>
-      <select aria-label="Filter timeline by person" value={person} onChange={e => setPerson(e.target.value)} data-testid="select-timeline-person"><option value="all">Everyone</option><option value="family">Family notes</option>{store.profiles.map(p => <option value={p.id} key={p.id}>{p.name}</option>)}</select>
-      <select aria-label="Filter timeline by year" value={year} onChange={e => setYear(e.target.value)} data-testid="select-timeline-year"><option value="all">All years</option>{years.map(y => <option value={y} key={y}>{y}</option>)}</select>
-      <select aria-label="Filter timeline by entry type" value={type} onChange={e => setType(e.target.value)} data-testid="select-timeline-type"><option value="all">All kinds</option>{ENTRY_TYPES.map(t => <option value={t} key={t}>{humanType(t)}</option>)}</select>
-    </div>
-    {matches.length ? <div className="timeline-list" data-testid="timeline-results">{matches.map(entry => {
-      const profile = store.profiles.find(p => p.id === entry.profileId);
-      return <article className="panel timeline-entry" key={entry.id} data-testid={`card-timeline-entry-${entry.id}`}>
-        <div className="timeline-date">{fmtDate(entry.date, { month: 'short', day: 'numeric', year: 'numeric' })}</div>
-        <div className="entry-content"><div className="entry-meta"><span className="color-swatch" style={{ background: profile?.color ?? '#d1a24e' }} />{profile?.name ?? 'Family'} <span>·</span>{humanType(entry.type)}</div><h2 className="entry-title">{entry.title || 'Untitled note'}</h2>{entry.text && <div className="entry-text">{entry.text}</div>}{entry.photo && <img src={entry.photo} className="entry-photo" alt={`Photo for ${entry.title || 'entry'}`} data-testid={`img-timeline-photo-${entry.id}`} />}</div>
-        <div className="entry-actions"><button className="icon-btn" aria-label={`Edit ${entry.title}`} data-testid={`button-edit-entry-${entry.id}`} onClick={() => onEdit(entry)}><Edit3 size={14} /></button><button className="icon-btn" aria-label={`Delete ${entry.title}`} data-testid={`button-delete-entry-${entry.id}`} onClick={() => onDelete(entry.id)}><Trash2 size={14} /></button></div>
-      </article>;
-    })}</div> : <div className="panel empty-state" data-testid="empty-timeline"><div className="empty-mark"><NotebookPen size={20} /></div><h3>{store.entries.length ? 'Nothing in this part of the story.' : 'A blank page, for now.'}</h3><p>{store.entries.length ? 'Try a different search or loosen one of the filters.' : 'Choose any day on the calendar to save a memory, a plan, or a small detail.'}</p><Link href="/" className="btn primary" data-testid="link-timeline-calendar"><CalendarDays size={14} /> Go to calendar</Link></div>}
-  </main>;
-}
-
 function SettingsPage({ store, onSave, onDelete, onToggleProfile, onTheme, onCompact, onShiftColor, onResetShiftColors, onExport, onImport, memoryUse }: { store: Store; onSave: (profile: Profile) => boolean; onDelete: (id: string) => void; onToggleProfile: (id: string) => void; onTheme: (theme: 'light' | 'dark') => void; onCompact: (compact: boolean) => void; onShiftColor: (type: DayType, color: string) => void; onResetShiftColors: () => void; onExport: () => void; onImport: () => void; memoryUse: number }) {
   const [editing, setEditing] = useState<string | 'new' | null>(null);
   const shiftColors = store.preferences.dayTypeColors ?? DEFAULT_DAY_TYPE_COLORS;
   return <main className="page-wrap">
-    <div className="page-heading"><div><div className="eyebrow">Settle things your way</div><h1 className="page-title">Your roster, your rules.</h1><p className="page-subtitle">Keep family schedules together. Your information stays in this browser.</p></div><button className="btn primary" data-testid="button-add-profile" onClick={() => setEditing('new')}><Plus size={15} /> Add a roster</button></div>
+    <div className="page-heading"><div><div className="eyebrow">Settle things your way</div><h1 className="page-title">Your roster, your rules.</h1><p className="page-subtitle">Keep family schedules together. Your information is saved to local storage on this device.</p></div><button className="btn primary" data-testid="button-add-profile" onClick={() => setEditing('new')}><Plus size={15} /> Add a roster</button></div>
     <div className="settings-layout">
       <section className="panel settings-panel">
         <h2 className="panel-heading">People & patterns <UsersRound size={17} /></h2>
@@ -433,7 +400,7 @@ function SettingsPage({ store, onSave, onDelete, onToggleProfile, onTheme, onCom
       <div style={{ display: 'grid', gap: 17 }}>
         <section className="panel settings-panel">
           <h2 className="panel-heading">How it feels <Sun size={17} /></h2>
-          <div className="form-field">Color of the page<select data-testid="select-theme" value={store.preferences.theme} onChange={e => onTheme(e.target.value as 'light' | 'dark')}><option value="light">Daylight paper</option><option value="dark">Quiet evening</option></select></div>
+          <div className="form-field">Color of the page<select data-testid="select-theme" value={store.preferences.theme} onChange={e => onTheme(e.target.value as 'light' | 'dark')}><option value="light">Light</option><option value="dark">Dark</option></select></div>
           <label className="profile-toggle" style={{ marginTop: 17 }}><input type="checkbox" checked={store.preferences.compact} onChange={e => onCompact(e.target.checked)} data-testid="input-compact-display" /> Compact roster labels</label>
           <p className="subtle">Your choice is remembered on this device.</p>
         </section>
@@ -453,11 +420,11 @@ function SettingsPage({ store, onSave, onDelete, onToggleProfile, onTheme, onCom
           <p className="subtle" style={{ lineHeight: 1.6, marginTop: -5 }}>Backups include shift times, profile patterns, date changes, notes and selected photos.</p>
           <button className="btn primary" style={{ width: '100%', marginBottom: 8 }} onClick={onExport} data-testid="button-export-backup"><Download size={14} /> Download JSON backup</button>
           <button className="btn" style={{ width: '100%' }} onClick={onImport} data-testid="button-import-backup"><FileUp size={14} /> Restore from backup</button>
-          <div className="storage-meter" aria-label={`Approximate browser storage used ${memoryUse}%`}><span style={{ width: `${Math.max(2, memoryUse)}%` }} /></div>
+          <div className="storage-meter" aria-label={`Approximate local storage used ${memoryUse}%`}><span style={{ width: `${Math.max(2, memoryUse)}%` }} /></div>
           <div className="subtle" data-testid="text-storage-status">Approx. {memoryUse}% of a 5 MB local storage budget used</div>
-          {memoryUse > 75 && <div className="notice" style={{ marginTop: 10 }}>Photos can fill browser storage quickly. Download a backup before adding more.</div>}
+          {memoryUse > 75 && <div className="notice" style={{ marginTop: 10 }}>Photos can fill local storage quickly. Download a backup before adding more.</div>}
         </section>
-        <div className="notice">Nothing is sent anywhere. If this browser's storage is cleared, a downloaded backup is your way back.</div>
+        <div className="notice">Nothing is sent anywhere. If this device's local storage is cleared, a downloaded backup is your way back.</div>
       </div>
     </div>
   </main>;
@@ -636,9 +603,9 @@ function OverrideEditor({ profile, date, current, onSave, onRemove }: { profile:
 }
 
 function DaySheet({ date, profiles, overrides, entries, selectedEntryId, setSelectedEntryId, onClose, onSaveOverride, onRemoveOverride, onSaveEntry, onDeleteEntry }: { date: string; profiles: Profile[]; overrides: Override[]; entries: Entry[]; selectedEntryId: string | null; setSelectedEntryId: (id: string | null) => void; onClose: () => void; onSaveOverride: (override: Override) => void; onRemoveOverride: (id: string) => void; onSaveEntry: (entry: Entry) => void; onDeleteEntry: (id: string) => void }) {
-  const relevantProfiles = profiles.filter(p => p.enabled);
+  const relevantProfiles = profiles.filter(p => p.visible && p.enabled);
   const current = selectedEntryId === 'new' ? undefined : entries.find(e => e.id === selectedEntryId);
-  const editing = selectedEntryId === 'new' || Boolean(current);
+  const editing = selectedEntryId === 'new' || selectedEntryId === 'new-event' || Boolean(current);
   return <div className="modal-backdrop" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
     <aside className="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="day-sheet-title" data-testid="dialog-day-detail">
       <div className="modal-head"><div><div className="eyebrow">The day, up close</div><h2 className="modal-title" id="day-sheet-title">{fmtDate(date)}</h2></div><button className="icon-btn" aria-label="Close day details" data-testid="button-close-day-detail" onClick={onClose}><X size={17} /></button></div>
@@ -646,56 +613,38 @@ function DaySheet({ date, profiles, overrides, entries, selectedEntryId, setSele
         <section className="modal-section"><h3 className="modal-section-title">Roster for this day</h3>
           {relevantProfiles.length ? relevantProfiles.map(profile => <OverrideEditor key={`${profile.id}-${date}-${overrides.find(o => o.profileId === profile.id && o.date === date)?.id ?? 'pattern'}`} profile={profile} date={date} current={overrides.find(o => o.profileId === profile.id && o.date === date)} onSave={onSaveOverride} onRemove={onRemoveOverride} />) : <div className="notice">There are no active rosters yet. Add one in Settings.</div>}
         </section>
-        <section className="modal-section"><div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}><h3 className="modal-section-title">The rest of the day</h3><button className="btn small primary" data-testid="button-add-day-entry" onClick={() => setSelectedEntryId('new')}><Plus size={13} /> Add note</button></div>
+        <section className="modal-section"><div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}><h3 className="modal-section-title">The rest of the day</h3><div style={{ display: 'flex', gap: 6 }}><button className="btn small" data-testid="button-add-day-entry" onClick={() => setSelectedEntryId('new')}><Plus size={13} /> Add note</button><button className="btn small primary" data-testid="button-add-day-event" onClick={() => setSelectedEntryId('new-event')}><CalendarCheck2 size={13} /> Add event</button></div></div>
           {entries.length ? entries.map(entry => <EntryCard key={entry.id} entry={entry} profile={profiles.find(p => p.id === entry.profileId)} onEdit={() => setSelectedEntryId(entry.id)} onDelete={() => onDeleteEntry(entry.id)} />) : <div className="subtle">No notes saved for this day yet.</div>}
         </section>
       </>}
-      {editing && <EntryEditor key={current?.id ?? `${date}-new`} date={date} profiles={profiles} entry={current} onSave={onSaveEntry} onCancel={() => setSelectedEntryId(null)} />}
+      {editing && <EntryEditor key={current?.id ?? `${date}-${selectedEntryId}`} date={date} profiles={profiles} entry={current} defaultType={selectedEntryId === 'new-event' ? 'event' : 'note'} onSave={onSaveEntry} onCancel={() => setSelectedEntryId(null)} />}
     </aside>
   </div>;
 }
 
 function EntryCard({ entry, profile, onEdit, onDelete }: { entry: Entry; profile?: Profile; onEdit: () => void; onDelete: () => void }) {
-  return <div className="entry-card" data-testid={`card-day-entry-${entry.id}`}><div className="entry-card-row"><div><div className="entry-meta"><span className="color-swatch" style={{ background: profile?.color ?? '#d1a24e' }} />{profile?.name ?? 'Family'} · {humanType(entry.type)}</div><h3 className="entry-title" style={{ fontSize: 15 }}>{entry.title}</h3></div><div className="inline-actions"><button aria-label={`Edit ${entry.title}`} data-testid={`button-edit-day-entry-${entry.id}`} onClick={onEdit}><Edit3 size={14} /></button><button aria-label={`Delete ${entry.title}`} data-testid={`button-remove-day-entry-${entry.id}`} onClick={onDelete}><Trash2 size={14} /></button></div></div>{entry.text && <div className="entry-text">{entry.text}</div>}{entry.photo && <img className="entry-photo" alt={`Photo for ${entry.title}`} src={entry.photo} data-testid={`img-day-entry-${entry.id}`} />}</div>;
+  const displayTitle = entry.title;
+  const actionLabel = displayTitle || humanType(entry.type);
+  return <div className="entry-card" data-testid={`card-day-entry-${entry.id}`}><div className="entry-card-row"><div><div className="entry-meta"><span className="color-swatch" style={{ background: profile?.color ?? '#d1a24e' }} />{profile?.name ?? 'Family'} · {humanType(entry.type)}</div>{displayTitle && <h3 className="entry-title" style={{ fontSize: 15 }}>{displayTitle}</h3>}</div><div className="inline-actions"><button aria-label={`Edit ${actionLabel}`} data-testid={`button-edit-day-entry-${entry.id}`} onClick={onEdit}><Edit3 size={14} /></button><button aria-label={`Delete ${actionLabel}`} data-testid={`button-remove-day-entry-${entry.id}`} onClick={onDelete}><Trash2 size={14} /></button></div></div>{entry.text && <div className="entry-text">{entry.text}</div>}{entry.photo && <img className="entry-photo" alt={`Photo for ${actionLabel}`} src={entry.photo} data-testid={`img-day-entry-${entry.id}`} />}</div>;
 }
 
-function EntryEditor({ date, profiles, entry, onSave, onCancel }: { date: string; profiles: Profile[]; entry?: Entry; onSave: (entry: Entry) => void; onCancel: () => void }) {
-  const [title, setTitle] = useState(entry?.title ?? '');
+function EntryEditor({ date, profiles, entry, defaultType = 'note', onSave, onCancel }: { date: string; profiles: Profile[]; entry?: Entry; defaultType?: EntryType; onSave: (entry: Entry) => void; onCancel: () => void }) {
   const [text, setText] = useState(entry?.text ?? '');
-  const [type, setType] = useState<EntryType>(entry?.type ?? 'note');
+  const [type, setType] = useState<EntryType>(entry?.type ?? defaultType);
   const [profileId, setProfileId] = useState(entry?.profileId ?? '');
-  const [photo, setPhoto] = useState(entry?.photo ?? '');
-  const [photoNotice, setPhotoNotice] = useState('');
-  const [busy, setBusy] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const handleFile = async (file?: File) => {
-    if (!file) return;
-    setBusy(true); setPhotoNotice('');
-    try {
-      const compressed = await compressPhoto(file);
-      setPhoto(compressed);
-      setPhotoNotice(`Photo ready · ${(compressed.length / 1024).toFixed(0)} KB after compression.`);
-    } catch (error) { setPhotoNotice(error instanceof Error ? error.message : 'Could not add that photo.'); }
-    finally { setBusy(false); if (fileRef.current) fileRef.current.value = ''; }
-  };
   const submit = () => {
-    if (!title.trim()) return;
     const now = new Date().toISOString();
-    onSave({ id: entry?.id ?? uid(), date, title: title.trim(), text, type, profileId: profileId || undefined, photo: photo || undefined, createdAt: entry?.createdAt ?? now, updatedAt: now });
+    onSave({ id: entry?.id ?? uid(), date, title: entry?.title ?? '', text, type, profileId: profileId || undefined, photo: entry?.photo, createdAt: entry?.createdAt ?? now, updatedAt: now });
   };
   return <section className="modal-section" data-testid="form-day-entry">
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}><h3 className="modal-section-title">{entry ? 'Edit this entry' : 'Add something to remember'}</h3><button className="icon-btn" aria-label="Cancel entry edit" data-testid="button-cancel-entry-edit" onClick={onCancel}><X size={15} /></button></div>
     <div className="form-grid">
-      <label className="form-field span-2">Title<input autoFocus maxLength={100} data-testid="input-entry-title" value={title} onChange={e => setTitle(e.target.value)} placeholder="A name for this moment" /></label>
       <label className="form-field">Kind<select data-testid="select-entry-type" value={type} onChange={e => setType(e.target.value as EntryType)}>{ENTRY_TYPES.map(t => <option value={t} key={t}>{humanType(t)}</option>)}</select></label>
       <label className="form-field">For<select data-testid="select-entry-profile" value={profileId} onChange={e => setProfileId(e.target.value)}><option value="">Everyone / family</option>{profiles.map(p => <option value={p.id} key={p.id}>{p.name}</option>)}</select></label>
       <label className="form-field span-2">Details<textarea rows={5} maxLength={8000} data-testid="input-entry-text" value={text} onChange={e => setText(e.target.value)} placeholder="A little context, a plan, a memory…" /></label>
     </div>
-    <input ref={fileRef} type="file" hidden accept="image/*" data-testid="input-entry-photo" onChange={e => void handleFile(e.target.files?.[0])} />
-    <div style={{ marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}><button className="btn small" type="button" disabled={busy} onClick={() => fileRef.current?.click()} data-testid="button-attach-photo"><ImagePlus size={13} />{busy ? 'Preparing…' : photo ? 'Replace photo' : 'Add a photo'}</button>{photo && <button className="btn small danger" type="button" onClick={() => { setPhoto(''); setPhotoNotice('Photo removed from this entry.'); }} data-testid="button-remove-photo">Remove photo</button>}</div>
-    {photo && <img className="entry-photo" src={photo} alt="Selected for this entry" data-testid="img-entry-photo-preview" />}
-    {photoNotice && <p className="subtle" role="status" data-testid="status-photo">{photoNotice}</p>}
-    <div className="form-actions"><button className="btn" onClick={onCancel} data-testid="button-cancel-entry">Cancel</button><button className="btn primary" disabled={!title.trim() || busy} onClick={submit} data-testid="button-save-entry">{entry ? 'Save entry' : 'Add to this day'}</button></div>
+    {entry?.photo && <img className="entry-photo" src={entry.photo} alt="Attached to this entry" data-testid="img-entry-photo-preview" />}
+    <div className="form-actions"><button className="btn" onClick={onCancel} data-testid="button-cancel-entry">Cancel</button><button className="btn primary" onClick={submit} data-testid="button-save-entry">{entry ? 'Save entry' : 'Add to this day'}</button></div>
   </section>;
 }
 

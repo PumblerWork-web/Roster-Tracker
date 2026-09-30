@@ -455,6 +455,23 @@ button { cursor: pointer; }
 .stat-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid hsl(var(--border)); font-size: 11px; color: hsl(var(--muted-foreground)); }
 .stat-row:last-child { border: 0; }
 .stat-value { font: 500 14px var(--app-font-mono); color: hsl(var(--foreground)); }
+.month-hours-panel .panel-heading { margin-bottom:10px; }
+.month-hours-profile { display:flex; align-items:center; gap:7px; margin-bottom:10px; font-size:11px; font-weight:600; }
+.month-hours-list { display:grid; }
+.month-hours-item { display:grid; grid-template-columns:10px minmax(0,1fr) auto; align-items:center; gap:8px; padding:10px 0; border-bottom:1px solid hsl(var(--border)); }
+.month-hours-item:last-child { border-bottom:0; }
+.month-hours-marker { width:9px; height:9px; border-radius:50%; border:1px solid hsl(var(--foreground) / .16); }
+.month-hours-item > div { display:grid; gap:3px; min-width:0; }
+.month-hours-item strong { font-size:11px; }
+.month-hours-item small { color:hsl(var(--muted-foreground)); font-size:9px; line-height:1.4; }
+.month-hours-item .stat-value { font-size:14px; white-space:nowrap; }
+.free-hours-item .month-hours-marker { background:hsl(var(--muted-foreground)); }
+.profile-shift-times { color:hsl(var(--muted-foreground)); font-size:10px; line-height:1.5; margin:5px 0 0 20px; }
+.shift-duration-preview { gap:5px; padding:9px 10px; border-radius:9px; background:hsl(var(--muted) / .65); }
+.shift-duration-preview strong { color:hsl(var(--foreground)); font-size:11px; }
+.shift-duration-preview span { color:hsl(var(--foreground)); font-size:11px; font-weight:600; }
+.shift-duration-preview small { color:hsl(var(--muted-foreground)); font-size:10px; line-height:1.4; }
+.shift-time-summary { padding:8px 10px; border-radius:8px; background:hsl(var(--accent)); color:hsl(var(--foreground)); font-size:11px; font-weight:600; }
 .profile-switches { display: grid; gap: 10px; }
 .profile-toggle { display: flex; align-items: center; gap: 9px; font-size: 12px; cursor: pointer; }
 .profile-toggle input { accent-color: hsl(var(--primary)); }

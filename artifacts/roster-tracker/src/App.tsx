@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from 'react';
 import { Link, Route, Switch, Router as WouterRouter, useLocation } from 'wouter';
 import { CalendarDays, CalendarRange, ChevronLeft, ChevronRight, Clock3, Download, FileUp, Heart, ImagePlus, Moon, NotebookPen, Plus, Search, Settings2, Sun, Trash2, UsersRound, X, Edit3, CalendarCheck2, Sparkles } from 'lucide-react';
-import { type DayType, type Entry, type EntryType, type Override, type Profile, type Store, DAY_TYPES, DEFAULT_DAY_TYPE_COLORS, ENTRY_TYPES, compressPhoto, dayTypeColor, dayTypeTextColor, fmtDate, localDate, normalizeStore, persistStore, readStore, rosterType, shiftDate, uid, validateStore } from '@/lib/roster';
+import { type DayType, type Entry, type EntryType, type Override, type Profile, type Store, DAY_TYPES, DEFAULT_DAY_TYPE_COLORS, DEFAULT_SHIFT_TIMES, ENTRY_TYPES, calculateMonthShiftHours, compressPhoto, dayTypeColor, dayTypeTextColor, fmtDate, formatHours, getShiftTimes, localDate, normalizeStore, persistStore, readStore, rosterType, shiftDate, shiftDurationMinutes, uid, validateStore } from '@/lib/roster';
 
 type ViewMode = 'month' | 'three' | 'year';
 const colors = ['#d9785c', '#4f8c83', '#d1a24e', '#7c82a9', '#b47786', '#6390a3', '#9b865c'];
@@ -21,6 +21,14 @@ const shortDayType = (type: DayType) => ({
   'Travel Day': 'Travel',
   'Custom Event': 'Event',
 })[type];
+const shiftTimeSummary = (profile: Profile, type: 'Day Shift' | 'Night Shift') => {
+  const { start, end } = getShiftTimes(profile, type);
+  return `${start}–${end} · ${formatHours(shiftDurationMinutes(start, end))}`;
+};
+const calendarShiftLabel = (profile: Profile, type: DayType) =>
+  type === 'Day Shift' || type === 'Night Shift'
+    ? `${shortDayType(type)} ${formatHours(shiftDurationMinutes(getShiftTimes(profile, type).start, getShiftTimes(profile, type).end))}`
+    : shortDayType(type);
 
 function App() {
   return <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}><RosterTracker /></WouterRouter>;
@@ -198,6 +206,7 @@ function CalendarPage({ store, view, setView, visibleDate, setVisibleDate, openD
   const activeProfiles = store.profiles.filter(p => p.visible && p.enabled);
   const focusProfile = store.profiles.find(p => p.id === selectedProfile) ?? store.profiles[0];
   const stats = focusProfile ? calculateStats(focusProfile, year, store.overrides) : null;
+  const monthHours = focusProfile ? calculateMonthShiftHours(focusProfile, year, visibleDate.getMonth(), store.overrides) : null;
   const title = view === 'year' ? String(year) : view === 'three' ? `${months[visibleDate.getMonth()].slice(0, 3)} – ${new Date(year, visibleDate.getMonth() + 2, 1).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}` : `${months[visibleDate.getMonth()]} ${year}`;
   return <main className="page-wrap">
     <div className="page-heading">
@@ -234,7 +243,7 @@ function CalendarPage({ store, view, setView, visibleDate, setVisibleDate, openD
       <aside className="stats-column">
         <div className="panel stats-panel">
           <h2 className="panel-heading">A year in view <CalendarCheck2 size={16} /></h2>
-          <label className="form-field" style={{ marginBottom: 13 }}>Count whose year?
+          <label className="form-field" style={{ marginBottom: 13 }}>Show stats for
             <select data-testid="select-stats-profile" value={focusProfile?.id ?? ''} onChange={e => setSelectedProfile(e.target.value)}>{store.profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
           </label>
           {stats && <>
@@ -249,6 +258,27 @@ function CalendarPage({ store, view, setView, visibleDate, setVisibleDate, openD
           </>}
           {!focusProfile && <p className="subtle">Add a roster profile to see your year at a glance.</p>}
         </div>
+        {focusProfile && monthHours && <section className="panel stats-panel month-hours-panel" data-testid="panel-month-hours">
+          <h2 className="panel-heading">{months[visibleDate.getMonth()]} {year} hours <Clock3 size={16} /></h2>
+          <div className="month-hours-profile"><span className="color-swatch" style={{ background: focusProfile.color }} />{focusProfile.name}</div>
+          <div className="month-hours-list">
+            {(['Day Shift', 'Night Shift'] as const).map(type => {
+              const times = getShiftTimes(focusProfile, type);
+              const duration = shiftDurationMinutes(times.start, times.end);
+              const minutes = type === 'Day Shift' ? monthHours.dayMinutes : monthHours.nightMinutes;
+              return <div className="month-hours-item" key={type} data-testid={type === 'Day Shift' ? 'stat-day-shift-hours' : 'stat-night-shift-hours'}>
+                <span className="month-hours-marker" style={{ background: dayTypeColor(type, store.preferences.dayTypeColors) }} />
+                <div><strong>{type === 'Day Shift' ? 'Day shift hours' : 'Night shift hours'}</strong><small>{times.start}–{times.end} · {formatHours(duration)} per shift</small></div>
+                <span className="stat-value">{formatHours(minutes)}</span>
+              </div>;
+            })}
+            <div className="month-hours-item free-hours-item" data-testid="stat-free-hours">
+              <span className="month-hours-marker" />
+              <div><strong>Free hours</strong><small>Outside scheduled day and night shifts</small></div>
+              <span className="stat-value">{formatHours(monthHours.freeMinutes)}</span>
+            </div>
+          </div>
+        </section>}
         <div className="panel stats-panel">
           <h2 className="panel-heading">In this calendar <UsersRound size={16} /></h2>
           {store.profiles.length ? <div className="profile-switches">{store.profiles.map(p => <label className="profile-toggle" key={p.id} data-testid={`toggle-visible-${p.id}`}><input type="checkbox" checked={p.visible} onChange={() => toggleProfile(p.id)} /><span className="color-swatch" style={{ background: p.color }} /><span>{p.name}</span></label>)}</div> : <div className="subtle">No rosters yet. Add one in settings.</div>}
@@ -284,9 +314,9 @@ function DayContents({ date, profiles, store, openDay, compact = false, inMonth 
   const types = profiles.map(p => ({ profile: p, type: rosterType(p, key, store.overrides) }));
   const hasLeave = types.some(x => x.type === 'Annual Leave');
   const entries = store.entries.filter(e => e.date === key);
-  return <button type="button" className={`day-cell ${!inMonth ? 'outside' : ''} ${isToday ? 'today' : ''} ${hasLeave ? 'leave-day' : ''}`} data-testid={`button-calendar-day-${key}`} onClick={() => openDay(key)} aria-label={`${fmtDate(key)}, ${types.map(x => `${x.profile.name}: ${x.type}`).join(', ')}`}>
+  return <button type="button" className={`day-cell ${!inMonth ? 'outside' : ''} ${isToday ? 'today' : ''} ${hasLeave ? 'leave-day' : ''}`} data-testid={`button-calendar-day-${key}`} onClick={() => openDay(key)} aria-label={`${fmtDate(key)}, ${types.map(x => `${x.profile.name}: ${x.type}${x.type === 'Day Shift' || x.type === 'Night Shift' ? `, ${shiftTimeSummary(x.profile, x.type)}` : ''}`).join(', ')}`}>
     <span className="day-number">{current}</span>
-    <div className="day-labels">{types.slice(0, compact ? 1 : 3).map(({ profile, type }) => <span key={profile.id} className={`shift-chip ${type === 'Days Off' ? 'off' : ''}`} title={`${profile.name}: ${type}`} style={{ '--profile-color': profile.color, '--shift-color': dayTypeColor(type, store.preferences.dayTypeColors), '--shift-foreground': dayTypeTextColor(dayTypeColor(type, store.preferences.dayTypeColors)) } as CSSProperties}>{shortDayType(type)}</span>)}{types.length > (compact ? 1 : 3) && <span className="shift-chip more-chip">+{types.length - (compact ? 1 : 3)}</span>}</div>
+    <div className="day-labels">{types.slice(0, compact ? 1 : 3).map(({ profile, type }) => <span key={profile.id} className={`shift-chip ${type === 'Days Off' ? 'off' : ''}`} title={`${profile.name}: ${type}${type === 'Day Shift' || type === 'Night Shift' ? ` · ${shiftTimeSummary(profile, type)}` : ''}`} style={{ '--profile-color': profile.color, '--shift-color': dayTypeColor(type, store.preferences.dayTypeColors), '--shift-foreground': dayTypeTextColor(dayTypeColor(type, store.preferences.dayTypeColors)) } as CSSProperties}>{calendarShiftLabel(profile, type)}</span>)}{types.length > (compact ? 1 : 3) && <span className="shift-chip more-chip">+{types.length - (compact ? 1 : 3)}</span>}</div>
     {compact && hasLeave && <span className="entry-dot" aria-label="Annual leave" />}
     {entries.length > 0 && <span className="entry-dot" aria-label={`${entries.length} personal entries`} />}
   </button>;
@@ -393,7 +423,7 @@ function SettingsPage({ store, onSave, onDelete, onToggleProfile, onTheme, onCom
         <h2 className="panel-heading">People & patterns <UsersRound size={17} /></h2>
         {store.profiles.length === 0 && editing !== 'new' && <div className="empty-state" style={{ padding: '30px 10px' }}><div className="empty-mark"><UsersRound size={19} /></div><h3>Start with one roster.</h3><p>Add the pattern that shapes your weeks. You can always change it later.</p><button className="btn primary" data-testid="button-first-profile" onClick={() => setEditing('new')}>Add a person</button></div>}
         {store.profiles.map(profile => editing === profile.id ? <ProfileForm key={profile.id} profile={profile} shiftColors={shiftColors} onSave={p => { if (onSave(p)) setEditing(null); }} onCancel={() => setEditing(null)} /> : <div className="profile-card" key={profile.id} data-testid={`card-profile-${profile.id}`}>
-          <div className="profile-card-head"><div><div className="profile-name-row"><span className="color-swatch" style={{ background: profile.color }} />{profile.name}{!profile.enabled && <span className="subtle">(paused)</span>}</div><div className="profile-detail">Pattern starts {fmtDate(profile.startDate)}{profile.annualAllowance ? ` · ${profile.annualAllowance} leave days / year` : ''}</div></div>
+          <div className="profile-card-head"><div><div className="profile-name-row"><span className="color-swatch" style={{ background: profile.color }} />{profile.name}{!profile.enabled && <span className="subtle">(paused)</span>}</div><div className="profile-detail">Pattern starts {fmtDate(profile.startDate)}{profile.annualAllowance ? ` · ${profile.annualAllowance} leave days / year` : ''}</div><div className="profile-shift-times" data-testid={`profile-shift-times-${profile.id}`}>Day {shiftTimeSummary(profile, 'Day Shift')} · Night {shiftTimeSummary(profile, 'Night Shift')}</div></div>
             <div className="profile-controls"><label className="profile-toggle"><input type="checkbox" checked={profile.visible} onChange={() => onToggleProfile(profile.id)} data-testid={`input-profile-visible-${profile.id}`} /> Show</label><button className="btn small" data-testid={`button-edit-profile-${profile.id}`} onClick={() => setEditing(profile.id)}><Edit3 size={12} /> Edit</button><button className="icon-btn" aria-label={`Delete ${profile.name}`} data-testid={`button-delete-profile-${profile.id}`} onClick={() => onDelete(profile.id)}><Trash2 size={14} /></button></div>
           </div>
           <div className="profile-pattern">{profile.pattern.map((item, index) => <span className="pattern-pill" key={`${profile.id}-${index}`} style={{ '--shift-color': dayTypeColor(item, shiftColors), '--shift-foreground': dayTypeTextColor(dayTypeColor(item, shiftColors)) } as CSSProperties} data-testid={`pattern-day-${profile.id}-${index}`}>{item === 'Day Shift' ? 'Day' : item === 'Night Shift' ? 'Night' : item === 'Days Off' ? 'Off' : item}</span>)}</div>
@@ -420,7 +450,7 @@ function SettingsPage({ store, onSave, onDelete, onToggleProfile, onTheme, onCom
         </section>
         <section className="panel settings-panel">
           <h2 className="panel-heading">Keep a copy <Heart size={16} /></h2>
-          <p className="subtle" style={{ lineHeight: 1.6, marginTop: -5 }}>Backups include profile patterns, date changes, notes and selected photos.</p>
+          <p className="subtle" style={{ lineHeight: 1.6, marginTop: -5 }}>Backups include shift times, profile patterns, date changes, notes and selected photos.</p>
           <button className="btn primary" style={{ width: '100%', marginBottom: 8 }} onClick={onExport} data-testid="button-export-backup"><Download size={14} /> Download JSON backup</button>
           <button className="btn" style={{ width: '100%' }} onClick={onImport} data-testid="button-import-backup"><FileUp size={14} /> Restore from backup</button>
           <div className="storage-meter" aria-label={`Approximate browser storage used ${memoryUse}%`}><span style={{ width: `${Math.max(2, memoryUse)}%` }} /></div>
@@ -438,12 +468,17 @@ function ProfileForm({ profile, shiftColors, onSave, onCancel }: { profile: Prof
   const [color, setColor] = useState(profile?.color ?? colors[0]);
   const [startDate, setStartDate] = useState(profile?.startDate ?? today);
   const [allowance, setAllowance] = useState(profile?.annualAllowance?.toString() ?? '');
+  const [dayShiftStart, setDayShiftStart] = useState(profile?.dayShiftStart ?? DEFAULT_SHIFT_TIMES.dayShiftStart);
+  const [dayShiftEnd, setDayShiftEnd] = useState(profile?.dayShiftEnd ?? DEFAULT_SHIFT_TIMES.dayShiftEnd);
+  const [nightShiftStart, setNightShiftStart] = useState(profile?.nightShiftStart ?? DEFAULT_SHIFT_TIMES.nightShiftStart);
+  const [nightShiftEnd, setNightShiftEnd] = useState(profile?.nightShiftEnd ?? DEFAULT_SHIFT_TIMES.nightShiftEnd);
   const [enabled, setEnabled] = useState(profile?.enabled ?? true);
   const [pattern, setPattern] = useState<DayType[]>(profile?.pattern ?? ['Day Shift', 'Day Shift', 'Day Shift', 'Night Shift', 'Night Shift', 'Night Shift', 'Days Off', 'Days Off', 'Days Off', 'Days Off', 'Days Off', 'Days Off']);
   const [preset, setPreset] = useState('custom');
   const [dropTarget, setDropTarget] = useState<number | null>(null);
   const [patternMessage, setPatternMessage] = useState('');
   const patternDragType = 'application/x-roster-pattern-item';
+  const shiftTimesValid = [dayShiftStart, dayShiftEnd, nightShiftStart, nightShiftEnd].every(value => /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value));
 
   const addDay = (dayType: DayType) => {
     if (pattern.length >= 366) {
@@ -521,8 +556,8 @@ function ProfileForm({ profile, shiftColors, onSave, onCancel }: { profile: Prof
     }
   };
   const submit = () => {
-    if (!name.trim() || !startDate || !pattern.length || pattern.length > 366 || pattern.some(type => !DAY_TYPES.includes(type))) return;
-    onSave({ id: profile?.id ?? uid(), name: name.trim(), color, visible: profile?.visible ?? true, enabled, startDate, pattern, annualAllowance: allowance === '' ? undefined : Math.max(0, Number(allowance)) });
+    if (!name.trim() || !startDate || !pattern.length || pattern.length > 366 || pattern.some(type => !DAY_TYPES.includes(type)) || !shiftTimesValid) return;
+    onSave({ id: profile?.id ?? uid(), name: name.trim(), color, visible: profile?.visible ?? true, enabled, startDate, pattern, annualAllowance: allowance === '' ? undefined : Math.max(0, Number(allowance)), dayShiftStart, dayShiftEnd, nightShiftStart, nightShiftEnd });
   };
   const applyPreset = (value: string) => {
     setPreset(value);
@@ -539,6 +574,15 @@ function ProfileForm({ profile, shiftColors, onSave, onCancel }: { profile: Prof
       <label className="form-field">Pattern begins<input type="date" data-testid="input-profile-start-date" value={startDate} onChange={e => setStartDate(e.target.value)} /></label>
       <label className="form-field">Annual leave allowance<input type="number" min="0" max="365" data-testid="input-profile-allowance" value={allowance} onChange={e => setAllowance(e.target.value)} placeholder="Optional days" /></label>
       <label className="form-field">Roster status<select data-testid="select-profile-enabled" value={enabled ? 'on' : 'off'} onChange={e => setEnabled(e.target.value === 'on')}><option value="on">Active</option><option value="off">Paused</option></select></label>
+      <label className="form-field">Day shift starts<input type="time" required value={dayShiftStart} onChange={e => setDayShiftStart(e.target.value)} data-testid="input-day-shift-start" /></label>
+      <label className="form-field">Day shift ends<input type="time" required value={dayShiftEnd} onChange={e => setDayShiftEnd(e.target.value)} data-testid="input-day-shift-end" /></label>
+      <label className="form-field">Night shift starts<input type="time" required value={nightShiftStart} onChange={e => setNightShiftStart(e.target.value)} data-testid="input-night-shift-start" /></label>
+      <label className="form-field">Night shift ends<input type="time" required value={nightShiftEnd} onChange={e => setNightShiftEnd(e.target.value)} data-testid="input-night-shift-end" /></label>
+      <div className="form-field span-2 shift-duration-preview" data-testid="text-shift-duration-preview">
+        <strong>Shift lengths</strong>
+        <span>Day: {shiftTimesValid ? formatHours(shiftDurationMinutes(dayShiftStart, dayShiftEnd)) : '—'} · Night: {shiftTimesValid ? formatHours(shiftDurationMinutes(nightShiftStart, nightShiftEnd)) : '—'}</span>
+        <small>End times earlier than start times are treated as next day.</small>
+      </div>
       <div className="form-field span-2">Profile color<div style={{ display: 'flex', gap: 9 }}>{colors.map(c => <button key={c} type="button" aria-label={`Choose color ${c}`} data-testid={`button-profile-color-${c.slice(1)}`} onClick={() => setColor(c)} style={{ width: 25, height: 25, borderRadius: '50%', background: c, border: color === c ? '3px solid hsl(var(--foreground))' : '2px solid transparent' }} />)}</div></div>
       <label className="form-field span-2">Pattern preset<select data-testid="select-pattern-preset" value={preset} onChange={e => applyPreset(e.target.value)}><option value="custom">Custom sequence</option><option value="3-3-6">3 Day / 3 Night / 6 Off</option><option value="7-7">7 On / 7 Off</option></select></label>
       <div className="form-field span-2 pattern-builder">
@@ -562,8 +606,9 @@ function ProfileForm({ profile, shiftColors, onSave, onCancel }: { profile: Prof
       </div>
     </div>
     {!patternValid && <p className="subtle" style={{ color: 'hsl(var(--destructive))' }}>Add at least one day and keep the pattern under 366 days.</p>}
+    {!shiftTimesValid && <p className="subtle" role="alert" style={{ color: 'hsl(var(--destructive))' }}>Set a valid start and end time for both shifts.</p>}
     {patternMessage && <p className="subtle" role="status" data-testid="text-pattern-message" style={{ color: 'hsl(var(--destructive))' }}>{patternMessage}</p>}
-    <div className="form-actions"><button className="btn" onClick={onCancel} data-testid="button-cancel-profile">Cancel</button><button className="btn primary" disabled={!name.trim() || !patternValid} onClick={submit} data-testid="button-save-profile">Save roster</button></div>
+    <div className="form-actions"><button className="btn" onClick={onCancel} data-testid="button-cancel-profile">Cancel</button><button className="btn primary" disabled={!name.trim() || !patternValid || !shiftTimesValid} onClick={submit} data-testid="button-save-profile">Save roster</button></div>
   </div>;
 }
 
@@ -581,6 +626,7 @@ function OverrideEditor({ profile, date, current, onSave, onRemove }: { profile:
     <div className="override-top"><span><span className="color-swatch" style={{ background: profile.color, display: 'inline-block', marginRight: 7 }} />{profile.name}</span><span className="subtle">{current ? 'Changed' : 'Pattern day'}</span></div>
     <div className="form-grid">
       <label className="form-field span-2">Roster day<select data-testid={`select-override-type-${profile.id}`} value={type} onChange={e => setType(e.target.value as DayType)}>{DAY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></label>
+      {(type === 'Day Shift' || type === 'Night Shift') && <div className="form-field span-2 shift-time-summary" data-testid={`text-override-shift-time-${profile.id}`}>{type}: {shiftTimeSummary(profile, type)}</div>}
       <label className="form-field span-2">Short label<input data-testid={`input-override-label-${profile.id}`} value={label} onChange={e => setLabel(e.target.value)} placeholder="Optional, e.g. swap with Sam" maxLength={70} /></label>
       <label className="form-field span-2">Details<textarea data-testid={`input-override-note-${profile.id}`} rows={2} value={note} onChange={e => setNote(e.target.value)} placeholder="A detail for this roster day" /></label>
     </div>

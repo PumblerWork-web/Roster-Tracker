@@ -1,11 +1,12 @@
 export type DayType = 'Day Shift' | 'Night Shift' | 'Days Off' | 'Annual Leave' | 'Public Holiday' | 'Sick Leave' | 'Training' | 'Travel Day' | 'Custom Event';
 export type EntryType = 'note' | 'event' | 'memory' | 'appointment' | 'custom';
-export type Profile = { id: string; name: string; color: string; visible: boolean; enabled: boolean; startDate: string; pattern: DayType[]; annualAllowance?: number };
+export type Profile = { id: string; name: string; color: string; visible: boolean; enabled: boolean; startDate: string; pattern: DayType[]; annualAllowance?: number; dayShiftStart?: string; dayShiftEnd?: string; nightShiftStart?: string; nightShiftEnd?: string };
 export type Override = { id: string; profileId: string; date: string; dayType: DayType; label?: string; note?: string; workedHoliday?: boolean };
 export type Entry = { id: string; date: string; profileId?: string; type: EntryType; title: string; text: string; photo?: string; createdAt: string; updatedAt: string };
 export type Store = { profiles: Profile[]; overrides: Override[]; entries: Entry[]; preferences: { theme: 'light' | 'dark'; compact: boolean; dayTypeColors?: Partial<Record<DayType, string>> } };
 
 export const DAY_TYPES: DayType[] = ['Day Shift', 'Night Shift', 'Days Off', 'Annual Leave', 'Public Holiday', 'Sick Leave', 'Training', 'Travel Day', 'Custom Event'];
+export const DEFAULT_SHIFT_TIMES = { dayShiftStart: '06:00', dayShiftEnd: '18:00', nightShiftStart: '18:00', nightShiftEnd: '06:00' } as const;
 export const DEFAULT_DAY_TYPE_COLORS: Record<DayType, string> = {
   'Day Shift': '#f2c94c',
   'Night Shift': '#2f63b8',
@@ -25,8 +26,9 @@ const isoToday = () => {
 };
 export const uid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 const validDate = (value: unknown) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(new Date(`${value}T12:00:00`).getTime()) && localDate(new Date(`${value}T12:00:00`)) === value;
+const validTime = (value: unknown) => typeof value === 'string' && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
 export const defaultStore = (): Store => ({
-  profiles: [{ id: uid(), name: 'My roster', color: '#d9785c', visible: true, enabled: true, startDate: isoToday(), pattern: ['Day Shift', 'Day Shift', 'Day Shift', 'Night Shift', 'Night Shift', 'Night Shift', 'Days Off', 'Days Off', 'Days Off', 'Days Off', 'Days Off', 'Days Off'], annualAllowance: 28 }],
+  profiles: [{ id: uid(), name: 'My roster', color: '#d9785c', visible: true, enabled: true, startDate: isoToday(), pattern: ['Day Shift', 'Day Shift', 'Day Shift', 'Night Shift', 'Night Shift', 'Night Shift', 'Days Off', 'Days Off', 'Days Off', 'Days Off', 'Days Off', 'Days Off'], annualAllowance: 28, ...DEFAULT_SHIFT_TIMES }],
   overrides: [],
   entries: [],
   preferences: { theme: 'light', compact: false, dayTypeColors: { ...DEFAULT_DAY_TYPE_COLORS } },
@@ -36,7 +38,7 @@ export function validateStore(value: unknown): value is Store {
   if (!value || typeof value !== 'object') return false;
   const v = value as Partial<Store>;
   if (!Array.isArray(v.profiles) || !Array.isArray(v.overrides) || !Array.isArray(v.entries) || !v.preferences) return false;
-  if (v.profiles.some(p => !p || typeof p.id !== 'string' || !p.id || typeof p.name !== 'string' || typeof p.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(p.color) || !validDate(p.startDate) || !Array.isArray(p.pattern) || !p.pattern.length || p.pattern.length > 366 || p.pattern.some(t => !DAY_TYPES.includes(t)) || typeof p.visible !== 'boolean' || typeof p.enabled !== 'boolean' || (p.annualAllowance !== undefined && (typeof p.annualAllowance !== 'number' || !Number.isFinite(p.annualAllowance) || p.annualAllowance < 0 || p.annualAllowance > 366)))) return false;
+  if (v.profiles.some(p => !p || typeof p.id !== 'string' || !p.id || typeof p.name !== 'string' || typeof p.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(p.color) || !validDate(p.startDate) || !Array.isArray(p.pattern) || !p.pattern.length || p.pattern.length > 366 || p.pattern.some(t => !DAY_TYPES.includes(t)) || typeof p.visible !== 'boolean' || typeof p.enabled !== 'boolean' || (p.annualAllowance !== undefined && (typeof p.annualAllowance !== 'number' || !Number.isFinite(p.annualAllowance) || p.annualAllowance < 0 || p.annualAllowance > 366)) || (p.dayShiftStart !== undefined && !validTime(p.dayShiftStart)) || (p.dayShiftEnd !== undefined && !validTime(p.dayShiftEnd)) || (p.nightShiftStart !== undefined && !validTime(p.nightShiftStart)) || (p.nightShiftEnd !== undefined && !validTime(p.nightShiftEnd)))) return false;
   if (v.overrides.some(o => !o || typeof o.id !== 'string' || typeof o.profileId !== 'string' || !validDate(o.date) || !DAY_TYPES.includes(o.dayType) || (o.label !== undefined && typeof o.label !== 'string') || (o.note !== undefined && typeof o.note !== 'string') || (o.workedHoliday !== undefined && typeof o.workedHoliday !== 'boolean'))) return false;
   if (v.entries.some(e => !e || typeof e.id !== 'string' || !validDate(e.date) || typeof e.title !== 'string' || typeof e.text !== 'string' || !ENTRY_TYPES.includes(e.type) || typeof e.createdAt !== 'string' || Number.isNaN(Date.parse(e.createdAt)) || typeof e.updatedAt !== 'string' || Number.isNaN(Date.parse(e.updatedAt)) || (e.profileId !== undefined && typeof e.profileId !== 'string') || (e.photo !== undefined && (typeof e.photo !== 'string' || !e.photo.startsWith('data:image/'))))) return false;
   const dayTypeColors = v.preferences.dayTypeColors;
@@ -46,6 +48,7 @@ export function validateStore(value: unknown): value is Store {
 
 export const normalizeStore = (store: Store): Store => ({
   ...store,
+  profiles: store.profiles.map(profile => ({ ...DEFAULT_SHIFT_TIMES, ...profile })),
   preferences: {
     ...store.preferences,
     dayTypeColors: { ...DEFAULT_DAY_TYPE_COLORS, ...store.preferences.dayTypeColors },
@@ -86,6 +89,53 @@ export const rosterType = (profile: Profile, date: string, overrides: Override[]
   const offset = Math.round((current - start) / 86400000);
   return profile.pattern[((offset % profile.pattern.length) + profile.pattern.length) % profile.pattern.length];
 };
+export function getShiftTimes(profile: Profile, type: 'Day Shift' | 'Night Shift') {
+  return type === 'Day Shift'
+    ? { start: profile.dayShiftStart ?? DEFAULT_SHIFT_TIMES.dayShiftStart, end: profile.dayShiftEnd ?? DEFAULT_SHIFT_TIMES.dayShiftEnd }
+    : { start: profile.nightShiftStart ?? DEFAULT_SHIFT_TIMES.nightShiftStart, end: profile.nightShiftEnd ?? DEFAULT_SHIFT_TIMES.nightShiftEnd };
+}
+export function shiftDurationMinutes(start: string, end: string) {
+  const toMinutes = (value: string) => {
+    const [hours, minutes] = value.split(':').map(Number);
+    return hours * 60 + minutes;
+  };
+  const difference = (toMinutes(end) - toMinutes(start) + 1440) % 1440;
+  return difference || 1440;
+}
+export const formatHours = (minutes: number) => `${Number((minutes / 60).toFixed(1))}h`;
+
+export function calculateMonthShiftHours(profile: Profile, year: number, month: number, overrides: Override[]) {
+  const monthStart = new Date(year, month, 1);
+  monthStart.setHours(0, 0, 0, 0);
+  const monthEnd = new Date(year, month + 1, 1);
+  monthEnd.setHours(0, 0, 0, 0);
+  let dayMinutes = 0;
+  let nightMinutes = 0;
+  const cursor = new Date(year, month, 0, 12);
+
+  while (cursor < monthEnd) {
+    const type = rosterType(profile, localDate(cursor), overrides);
+    if (type === 'Day Shift' || type === 'Night Shift') {
+      const { start: startTime, end: endTime } = getShiftTimes(profile, type);
+      const [startHour, startMinute] = startTime.split(':').map(Number);
+      const [endHour, endMinute] = endTime.split(':').map(Number);
+      const shiftStart = new Date(cursor);
+      shiftStart.setHours(startHour, startMinute, 0, 0);
+      const shiftEnd = new Date(cursor);
+      shiftEnd.setHours(endHour, endMinute, 0, 0);
+      if (shiftEnd <= shiftStart) shiftEnd.setDate(shiftEnd.getDate() + 1);
+      const overlapStart = Math.max(shiftStart.getTime(), monthStart.getTime());
+      const overlapEnd = Math.min(shiftEnd.getTime(), monthEnd.getTime());
+      const overlapMinutes = Math.max(0, (overlapEnd - overlapStart) / 60000);
+      if (type === 'Day Shift') dayMinutes += overlapMinutes;
+      else nightMinutes += overlapMinutes;
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  const monthMinutes = (monthEnd.getTime() - monthStart.getTime()) / 60000;
+  return { dayMinutes, nightMinutes, freeMinutes: Math.max(0, monthMinutes - dayMinutes - nightMinutes) };
+}
 export const fmtDate = (date: string, options: Intl.DateTimeFormatOptions = { month: 'long', day: 'numeric', year: 'numeric' }) =>
   new Date(`${date}T12:00:00`).toLocaleDateString(undefined, options);
 

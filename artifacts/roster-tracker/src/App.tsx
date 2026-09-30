@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from 'react';
 import { Link, Route, Switch, Router as WouterRouter, useLocation } from 'wouter';
 import { CalendarDays, CalendarRange, ChevronLeft, ChevronRight, Clock3, Download, FileUp, Heart, ImagePlus, Moon, NotebookPen, Plus, Search, Settings2, Sun, Trash2, UsersRound, X, Edit3, CalendarCheck2, Sparkles } from 'lucide-react';
 import { type DayType, type Entry, type EntryType, type Override, type Profile, type Store, DAY_TYPES, ENTRY_TYPES, compressPhoto, fmtDate, localDate, persistStore, readStore, rosterType, shiftDate, uid, validateStore } from '@/lib/roster';
@@ -411,20 +411,99 @@ function ProfileForm({ profile, onSave, onCancel }: { profile: Profile | null; o
   const [startDate, setStartDate] = useState(profile?.startDate ?? today);
   const [allowance, setAllowance] = useState(profile?.annualAllowance?.toString() ?? '');
   const [enabled, setEnabled] = useState(profile?.enabled ?? true);
-  const [patternMode, setPatternMode] = useState(profile?.pattern.join(', ') ?? 'Day Shift, Day Shift, Day Shift, Night Shift, Night Shift, Night Shift, Days Off, Days Off, Days Off, Days Off, Days Off, Days Off');
+  const [pattern, setPattern] = useState<DayType[]>(profile?.pattern ?? ['Day Shift', 'Day Shift', 'Day Shift', 'Night Shift', 'Night Shift', 'Night Shift', 'Days Off', 'Days Off', 'Days Off', 'Days Off', 'Days Off', 'Days Off']);
   const [preset, setPreset] = useState('custom');
+  const [dropTarget, setDropTarget] = useState<number | null>(null);
+  const [patternMessage, setPatternMessage] = useState('');
+  const patternDragType = 'application/x-roster-pattern-item';
+
+  const addDay = (dayType: DayType) => {
+    if (pattern.length >= 366) {
+      setPatternMessage('A repeating pattern can contain up to 366 days.');
+      return;
+    }
+    setPattern(current => [...current, dayType]);
+    setPreset('custom');
+    setPatternMessage('');
+  };
+  const moveDay = (from: number, to: number) => {
+    if (from === to || to < 0 || to >= pattern.length) return;
+    setPattern(current => {
+      const next = [...current];
+      const [item] = next.splice(from, 1);
+      next.splice(to, 0, item);
+      return next;
+    });
+    setPreset('custom');
+    setPatternMessage('');
+  };
+  const removeDay = (index: number) => {
+    if (pattern.length <= 1) {
+      setPatternMessage('Keep at least one day in the repeating pattern.');
+      return;
+    }
+    setPattern(current => current.filter((_, i) => i !== index));
+    setPreset('custom');
+    setPatternMessage('');
+  };
+  const startPaletteDrag = (event: DragEvent<HTMLButtonElement>, dayType: DayType) => {
+    event.dataTransfer.setData(patternDragType, JSON.stringify({ source: 'palette', dayType }));
+    event.dataTransfer.effectAllowed = 'copy';
+  };
+  const startSequenceDrag = (event: DragEvent<HTMLButtonElement>, index: number) => {
+    event.dataTransfer.setData(patternDragType, JSON.stringify({ source: 'sequence', index }));
+    event.dataTransfer.effectAllowed = 'move';
+  };
+  const dropDay = (event: DragEvent<HTMLElement>, targetIndex: number) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setDropTarget(null);
+    const raw = event.dataTransfer.getData(patternDragType);
+    if (!raw) return;
+    try {
+      const payload: unknown = JSON.parse(raw);
+      if (!payload || typeof payload !== 'object') return;
+      const data = payload as { source?: unknown; dayType?: unknown; index?: unknown };
+      if (data.source === 'palette' && typeof data.dayType === 'string' && DAY_TYPES.includes(data.dayType as DayType)) {
+        if (pattern.length >= 366) {
+          setPatternMessage('A repeating pattern can contain up to 366 days.');
+          return;
+        }
+        setPattern(current => {
+          const next = [...current];
+          next.splice(Math.min(targetIndex, next.length), 0, data.dayType as DayType);
+          return next;
+        });
+      } else if (data.source === 'sequence' && typeof data.index === 'number' && Number.isInteger(data.index) && data.index >= 0 && data.index < pattern.length) {
+        const from = data.index;
+        setPattern(current => {
+          const next = [...current];
+          const [item] = next.splice(from, 1);
+          const insertion = from < targetIndex ? targetIndex - 1 : targetIndex;
+          next.splice(Math.max(0, Math.min(insertion, next.length)), 0, item);
+          return next;
+        });
+      } else {
+        return;
+      }
+      setPreset('custom');
+      setPatternMessage('');
+    } catch {
+      setPatternMessage('That shift could not be added. Try dragging it again.');
+    }
+  };
   const submit = () => {
-    const pattern = patternMode.split(',').map(x => x.trim()).filter(Boolean) as DayType[];
-    if (!name.trim() || !startDate || !pattern.length || pattern.some(type => !DAY_TYPES.includes(type))) return;
+    if (!name.trim() || !startDate || !pattern.length || pattern.length > 366 || pattern.some(type => !DAY_TYPES.includes(type))) return;
     onSave({ id: profile?.id ?? uid(), name: name.trim(), color, visible: profile?.visible ?? true, enabled, startDate, pattern, annualAllowance: allowance === '' ? undefined : Math.max(0, Number(allowance)) });
   };
   const applyPreset = (value: string) => {
     setPreset(value);
-    if (value === '3-3-6') setPatternMode('Day Shift, Day Shift, Day Shift, Night Shift, Night Shift, Night Shift, Days Off, Days Off, Days Off, Days Off, Days Off, Days Off');
-    else if (value === '7-7') setPatternMode('Day Shift, Day Shift, Day Shift, Day Shift, Day Shift, Day Shift, Day Shift, Days Off, Days Off, Days Off, Days Off, Days Off, Days Off, Days Off');
+    if (value === '3-3-6') setPattern(['Day Shift', 'Day Shift', 'Day Shift', 'Night Shift', 'Night Shift', 'Night Shift', 'Days Off', 'Days Off', 'Days Off', 'Days Off', 'Days Off', 'Days Off']);
+    else if (value === '7-7') setPattern([...Array<DayType>(7).fill('Day Shift'), ...Array<DayType>(7).fill('Days Off')]);
+    setPatternMessage('');
   };
-  const parsedPattern = patternMode.split(',').map(x => x.trim()).filter(Boolean);
-  const patternValid = parsedPattern.length > 0 && parsedPattern.every(x => DAY_TYPES.includes(x as DayType));
+  const patternValid = pattern.length > 0 && pattern.length <= 366 && pattern.every(type => DAY_TYPES.includes(type));
+  const readableDayType = (type: DayType) => type === 'Day Shift' ? 'Day shift' : type === 'Night Shift' ? 'Night shift' : type;
   return <div className="profile-card" data-testid="form-profile">
     <h3 className="panel-heading">{profile ? 'Edit this roster' : 'A new roster'} <UsersRound size={15} /></h3>
     <div className="form-grid">
@@ -434,9 +513,28 @@ function ProfileForm({ profile, onSave, onCancel }: { profile: Profile | null; o
       <label className="form-field">Roster status<select data-testid="select-profile-enabled" value={enabled ? 'on' : 'off'} onChange={e => setEnabled(e.target.value === 'on')}><option value="on">Active</option><option value="off">Paused</option></select></label>
       <div className="form-field span-2">Profile color<div style={{ display: 'flex', gap: 9 }}>{colors.map(c => <button key={c} type="button" aria-label={`Choose color ${c}`} data-testid={`button-profile-color-${c.slice(1)}`} onClick={() => setColor(c)} style={{ width: 25, height: 25, borderRadius: '50%', background: c, border: color === c ? '3px solid hsl(var(--foreground))' : '2px solid transparent' }} />)}</div></div>
       <label className="form-field span-2">Pattern preset<select data-testid="select-pattern-preset" value={preset} onChange={e => applyPreset(e.target.value)}><option value="custom">Custom sequence</option><option value="3-3-6">3 Day / 3 Night / 6 Off</option><option value="7-7">7 On / 7 Off</option></select></label>
-      <label className="form-field span-2">Repeating day types, in order<textarea data-testid="input-roster-pattern" value={patternMode} onChange={e => { setPatternMode(e.target.value); setPreset('custom'); }} rows={3} placeholder="Day Shift, Night Shift, Days Off" /><span className="subtle">Separate each day with a comma. Use the exact day type names from the presets.</span></label>
+      <div className="form-field span-2 pattern-builder">
+        <div className="pattern-builder-heading"><span>Build your repeating sequence</span><span>{pattern.length} {pattern.length === 1 ? 'day' : 'days'}</span></div>
+        <span className="subtle">Drag a shift onto a day to place it before that day, or drop it in the open space at the end. Tap a shift type to add it at the end.</span>
+        <div className="pattern-palette" aria-label="Available shift types">
+          {DAY_TYPES.map((dayType, index) => <button key={dayType} type="button" className="pattern-palette-item" draggable={pattern.length < 366} onDragStart={event => startPaletteDrag(event, dayType)} onClick={() => addDay(dayType)} disabled={pattern.length >= 366} data-testid={`button-add-pattern-${index}`}><Plus size={12} /><span>{readableDayType(dayType)}</span></button>)}
+        </div>
+        <div className={`pattern-sequence${dropTarget === pattern.length ? ' is-drop-target' : ''}`} aria-label="Repeating roster sequence" data-testid="list-roster-pattern" onDragOver={event => { event.preventDefault(); setDropTarget(pattern.length); }} onDragLeave={() => setDropTarget(null)} onDrop={event => dropDay(event, pattern.length)}>
+          {pattern.map((dayType, index) => <div key={`${dayType}-${index}`} className={`pattern-step${dropTarget === index ? ' is-drop-target' : ''}`} role="listitem" data-testid={`pattern-step-${index}`} onDragOver={event => { event.preventDefault(); event.stopPropagation(); setDropTarget(index); }} onDragLeave={() => setDropTarget(null)} onDrop={event => dropDay(event, index)}>
+            <button type="button" className="pattern-drag-handle" draggable onDragStart={event => startSequenceDrag(event, index)} onDragEnd={() => setDropTarget(null)} aria-label={`Drag ${readableDayType(dayType)} day ${index + 1} to reorder`} title="Drag to reorder" data-testid={`button-drag-pattern-${index}`}><span className="pattern-step-number">{index + 1}</span><span>{readableDayType(dayType)}</span></button>
+            <div className="pattern-step-actions">
+              <button type="button" className="pattern-step-action" aria-label={`Move ${readableDayType(dayType)} day ${index + 1} earlier`} title="Move earlier" disabled={index === 0} onClick={() => moveDay(index, index - 1)} data-testid={`button-pattern-earlier-${index}`}><ChevronLeft size={13} /></button>
+              <button type="button" className="pattern-step-action" aria-label={`Move ${readableDayType(dayType)} day ${index + 1} later`} title="Move later" disabled={index === pattern.length - 1} onClick={() => moveDay(index, index + 1)} data-testid={`button-pattern-later-${index}`}><ChevronRight size={13} /></button>
+              <button type="button" className="pattern-step-action remove" aria-label={`Remove ${readableDayType(dayType)} day ${index + 1}`} title="Remove day" onClick={() => removeDay(index)} data-testid={`button-pattern-remove-${index}`}><X size={13} /></button>
+            </div>
+          </div>)}
+          <div className={`pattern-drop-end${dropTarget === pattern.length ? ' is-drop-target' : ''}`} aria-hidden="true"><Plus size={14} /></div>
+        </div>
+        <span className="subtle">The sequence repeats from the pattern start date. Use the arrow controls to reorder without dragging.</span>
+      </div>
     </div>
-    {!patternValid && <p className="subtle" style={{ color: 'hsl(var(--destructive))' }}>A pattern includes a day type we don't recognize.</p>}
+    {!patternValid && <p className="subtle" style={{ color: 'hsl(var(--destructive))' }}>Add at least one day and keep the pattern under 366 days.</p>}
+    {patternMessage && <p className="subtle" role="status" data-testid="text-pattern-message" style={{ color: 'hsl(var(--destructive))' }}>{patternMessage}</p>}
     <div className="form-actions"><button className="btn" onClick={onCancel} data-testid="button-cancel-profile">Cancel</button><button className="btn primary" disabled={!name.trim() || !patternValid} onClick={submit} data-testid="button-save-profile">Save roster</button></div>
   </div>;
 }

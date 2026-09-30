@@ -1,0 +1,101 @@
+Create a modern responsive web application called "Roster Tracker".
+ 
+Purpose:
+A personal roster, calendar and life log application that allows users to track work rosters, leave, events and notes over multiple years.
+ 
+Core Requirements:
+ 
+- Monthly calendar view.
+- Ability to view 12+ months continuously.
+- Ability to jump to any month or year.
+- Ability to switch between Month, 3 Month, 12 Month and Timeline views.
+ 
+Roster Management:
+ 
+- Support multiple roster profiles.
+- Example profiles:
+- Matthew
+- Wife
+- Son
+- Custom profiles
+ 
+- Each profile has:
+- Name
+- Colour
+- Roster pattern
+ 
+Roster day types:
+- Day Shift
+- Night Shift
+- Days Off
+- Annual Leave
+- Public Holiday
+- Sick Leave
+- Training
+- Travel Day
+- Custom Event
+ 
+Roster patterns should be generated automatically from a start date.
+ 
+Examples:
+- 3 Days / 3 Nights / 6 Off
+- 7 On / 7 Off
+- Custom user-defined pattern
+ 
+Calendar Features:
+ 
+- Show all roster profiles on the same calendar.
+- Toggle roster visibility on/off.
+- Colour coded day types.
+- Show overlapping rosters.
+- Highlight today.
+- Highlight upcoming leave periods.
+ 
+Notes and Journal:
+ 
+- Click any day to open details.
+- Add notes to any day.
+- Add photos to any day.
+- Add important events.
+- Add memories.
+- Add appointments.
+ 
+Examples:
+- Corin school camp
+- Doctor appointment
+- D&D session
+- Family BBQ
+- Vehicle service
+ 
+Timeline View:
+ 
+- Display historical events and notes.
+- Search by keyword.
+- Search by person.
+- Search by year.
+- Search by event type.
+ 
+Useful Statistics:
+ 
+- Days worked this year.
+- Night shifts this year.
+- Leave balance used.
+- Public holidays worked.
+- Longest break.
+- Days until next leave.
+ 
+Storage:
+ 
+- Store all data locally using browser storage.
+- No login required.
+- Allow export and import of backup files.
+ 
+Design:
+ 
+- Clean dashboard style.
+- Large modern cards.
+- Mobile friendly.
+- Dark mode and light mode.
+- Optimised for shift workers and families.
+ 
+Focus on simplicity, usability and long-term personal record keeping.

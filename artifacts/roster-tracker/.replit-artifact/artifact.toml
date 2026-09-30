@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Roster Tracker"
+description = "A local-first family roster and life log for tracking rotating shifts, leave, events, notes, and memories across years, with multiple profiles, flexible calendar views, useful annual statistics, and backup import/export."
+version = "1.0.0"
+id = "artifacts/roster-tracker"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23657
+
+[services.development]
+run = "pnpm --filter @workspace/roster-tracker run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/roster-tracker", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/roster-tracker/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23657"
+BASE_PATH = "/"

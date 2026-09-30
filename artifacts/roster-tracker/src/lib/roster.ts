@@ -8,7 +8,7 @@ export type Store = { profiles: Profile[]; overrides: Override[]; entries: Entry
 export const DAY_TYPES: DayType[] = ['Day Shift', 'Night Shift', 'Days Off', 'Annual Leave', 'Public Holiday', 'Sick Leave', 'Training', 'Travel Day', 'Custom Event'];
 export const DEFAULT_DAY_TYPE_COLORS: Record<DayType, string> = {
   'Day Shift': '#f2c94c',
-  'Night Shift': '#4b83e8',
+  'Night Shift': '#2f63b8',
   'Days Off': '#8caaa0',
   'Annual Leave': '#dc9850',
   'Public Holiday': '#c46e4f',
@@ -40,7 +40,7 @@ export function validateStore(value: unknown): value is Store {
   if (v.overrides.some(o => !o || typeof o.id !== 'string' || typeof o.profileId !== 'string' || !validDate(o.date) || !DAY_TYPES.includes(o.dayType) || (o.label !== undefined && typeof o.label !== 'string') || (o.note !== undefined && typeof o.note !== 'string') || (o.workedHoliday !== undefined && typeof o.workedHoliday !== 'boolean'))) return false;
   if (v.entries.some(e => !e || typeof e.id !== 'string' || !validDate(e.date) || typeof e.title !== 'string' || typeof e.text !== 'string' || !ENTRY_TYPES.includes(e.type) || typeof e.createdAt !== 'string' || Number.isNaN(Date.parse(e.createdAt)) || typeof e.updatedAt !== 'string' || Number.isNaN(Date.parse(e.updatedAt)) || (e.profileId !== undefined && typeof e.profileId !== 'string') || (e.photo !== undefined && (typeof e.photo !== 'string' || !e.photo.startsWith('data:image/'))))) return false;
   const dayTypeColors = v.preferences.dayTypeColors;
-  if (dayTypeColors !== undefined && (!dayTypeColors || typeof dayTypeColors !== 'object' || DAY_TYPES.some(type => typeof dayTypeColors[type] !== 'string' || !/^#[0-9a-f]{6}$/i.test(dayTypeColors[type] as string)))) return false;
+  if (dayTypeColors !== undefined && (!dayTypeColors || typeof dayTypeColors !== 'object' || DAY_TYPES.some(type => dayTypeColors[type] !== undefined && (typeof dayTypeColors[type] !== 'string' || !/^#[0-9a-f]{6}$/i.test(dayTypeColors[type] as string))))) return false;
   return (v.preferences.theme === 'light' || v.preferences.theme === 'dark') && typeof v.preferences.compact === 'boolean';
 }
 
@@ -54,6 +54,16 @@ export const normalizeStore = (store: Store): Store => ({
 
 export const dayTypeColor = (type: DayType, colors?: Partial<Record<DayType, string>>) =>
   colors?.[type] ?? DEFAULT_DAY_TYPE_COLORS[type];
+
+export const dayTypeTextColor = (hex: string) => {
+  const channels = hex.replace('#', '').match(/.{2}/g)?.map(channel => Number.parseInt(channel, 16) / 255);
+  if (!channels || channels.length !== 3 || channels.some(channel => !Number.isFinite(channel))) return '#172d2b';
+  const [r, g, b] = channels.map(channel => channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4);
+  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  const darkContrast = (luminance + 0.05) / 0.05;
+  const lightContrast = 1.05 / (luminance + 0.05);
+  return darkContrast >= lightContrast ? '#172d2b' : '#ffffff';
+};
 
 export function readStore(): Store {
   try {

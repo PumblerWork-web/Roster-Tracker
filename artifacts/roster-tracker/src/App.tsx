@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from 'react';
 import { Link, Route, Switch, Router as WouterRouter, useLocation } from 'wouter';
 import { CalendarDays, CalendarRange, ChevronLeft, ChevronRight, Clock3, Download, FileUp, Heart, ImagePlus, Moon, NotebookPen, Plus, Search, Settings2, Sun, Trash2, UsersRound, X, Edit3, CalendarCheck2, Sparkles } from 'lucide-react';
-import { type DayType, type Entry, type EntryType, type Override, type Profile, type Store, DAY_TYPES, DEFAULT_DAY_TYPE_COLORS, ENTRY_TYPES, compressPhoto, dayTypeColor, fmtDate, localDate, normalizeStore, persistStore, readStore, rosterType, shiftDate, uid, validateStore } from '@/lib/roster';
+import { type DayType, type Entry, type EntryType, type Override, type Profile, type Store, DAY_TYPES, DEFAULT_DAY_TYPE_COLORS, ENTRY_TYPES, compressPhoto, dayTypeColor, dayTypeTextColor, fmtDate, localDate, normalizeStore, persistStore, readStore, rosterType, shiftDate, uid, validateStore } from '@/lib/roster';
 
 type ViewMode = 'month' | 'three' | 'year';
 const colors = ['#d9785c', '#4f8c83', '#d1a24e', '#7c82a9', '#b47786', '#6390a3', '#9b865c'];
@@ -10,6 +10,17 @@ const today = localDate(new Date());
 const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const dateParts = (date: string) => new Date(`${date}T12:00:00`);
 const humanType = (type: EntryType) => type === 'custom' ? 'Custom' : type.charAt(0).toUpperCase() + type.slice(1);
+const shortDayType = (type: DayType) => ({
+  'Day Shift': 'Day',
+  'Night Shift': 'Night',
+  'Days Off': 'Off',
+  'Annual Leave': 'Leave',
+  'Public Holiday': 'Holiday',
+  'Sick Leave': 'Sick',
+  Training: 'Train',
+  'Travel Day': 'Travel',
+  'Custom Event': 'Event',
+})[type];
 
 function App() {
   return <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}><RosterTracker /></WouterRouter>;
@@ -275,7 +286,7 @@ function DayContents({ date, profiles, store, openDay, compact = false, inMonth 
   const entries = store.entries.filter(e => e.date === key);
   return <button type="button" className={`day-cell ${!inMonth ? 'outside' : ''} ${isToday ? 'today' : ''} ${hasLeave ? 'leave-day' : ''}`} data-testid={`button-calendar-day-${key}`} onClick={() => openDay(key)} aria-label={`${fmtDate(key)}, ${types.map(x => `${x.profile.name}: ${x.type}`).join(', ')}`}>
     <span className="day-number">{current}</span>
-    <div className="day-labels">{types.slice(0, compact ? 1 : 3).map(({ profile, type }) => <span key={profile.id} className={`shift-chip ${type === 'Days Off' ? 'off' : ''}`} title={`${profile.name}: ${type}`} style={{ '--profile-color': profile.color, '--shift-color': dayTypeColor(type, store.preferences.dayTypeColors) } as CSSProperties}>{type === 'Day Shift' ? 'Day' : type === 'Night Shift' ? 'Night' : type === 'Days Off' ? 'Off' : type === 'Annual Leave' ? 'Leave' : type}</span>)}{types.length > (compact ? 1 : 3) && <span className="shift-chip more-chip">+{types.length - (compact ? 1 : 3)}</span>}</div>
+    <div className="day-labels">{types.slice(0, compact ? 1 : 3).map(({ profile, type }) => <span key={profile.id} className={`shift-chip ${type === 'Days Off' ? 'off' : ''}`} title={`${profile.name}: ${type}`} style={{ '--profile-color': profile.color, '--shift-color': dayTypeColor(type, store.preferences.dayTypeColors), '--shift-foreground': dayTypeTextColor(dayTypeColor(type, store.preferences.dayTypeColors)) } as CSSProperties}>{shortDayType(type)}</span>)}{types.length > (compact ? 1 : 3) && <span className="shift-chip more-chip">+{types.length - (compact ? 1 : 3)}</span>}</div>
     {compact && hasLeave && <span className="entry-dot" aria-label="Annual leave" />}
     {entries.length > 0 && <span className="entry-dot" aria-label={`${entries.length} personal entries`} />}
   </button>;
@@ -385,7 +396,7 @@ function SettingsPage({ store, onSave, onDelete, onToggleProfile, onTheme, onCom
           <div className="profile-card-head"><div><div className="profile-name-row"><span className="color-swatch" style={{ background: profile.color }} />{profile.name}{!profile.enabled && <span className="subtle">(paused)</span>}</div><div className="profile-detail">Pattern starts {fmtDate(profile.startDate)}{profile.annualAllowance ? ` · ${profile.annualAllowance} leave days / year` : ''}</div></div>
             <div className="profile-controls"><label className="profile-toggle"><input type="checkbox" checked={profile.visible} onChange={() => onToggleProfile(profile.id)} data-testid={`input-profile-visible-${profile.id}`} /> Show</label><button className="btn small" data-testid={`button-edit-profile-${profile.id}`} onClick={() => setEditing(profile.id)}><Edit3 size={12} /> Edit</button><button className="icon-btn" aria-label={`Delete ${profile.name}`} data-testid={`button-delete-profile-${profile.id}`} onClick={() => onDelete(profile.id)}><Trash2 size={14} /></button></div>
           </div>
-          <div className="profile-pattern">{profile.pattern.map((item, index) => <span className="pattern-pill" key={`${profile.id}-${index}`} style={{ '--shift-color': dayTypeColor(item, shiftColors) } as CSSProperties} data-testid={`pattern-day-${profile.id}-${index}`}>{item === 'Day Shift' ? 'Day' : item === 'Night Shift' ? 'Night' : item === 'Days Off' ? 'Off' : item}</span>)}</div>
+          <div className="profile-pattern">{profile.pattern.map((item, index) => <span className="pattern-pill" key={`${profile.id}-${index}`} style={{ '--shift-color': dayTypeColor(item, shiftColors), '--shift-foreground': dayTypeTextColor(dayTypeColor(item, shiftColors)) } as CSSProperties} data-testid={`pattern-day-${profile.id}-${index}`}>{item === 'Day Shift' ? 'Day' : item === 'Night Shift' ? 'Night' : item === 'Days Off' ? 'Off' : item}</span>)}</div>
         </div>)}
         {editing === 'new' && <ProfileForm profile={null} shiftColors={shiftColors} onSave={p => { if (onSave(p)) setEditing(null); }} onCancel={() => setEditing(null)} />}
       </section>
@@ -537,7 +548,7 @@ function ProfileForm({ profile, shiftColors, onSave, onCancel }: { profile: Prof
           {DAY_TYPES.map((dayType, index) => <button key={dayType} type="button" className="pattern-palette-item" draggable={pattern.length < 366} onDragStart={event => startPaletteDrag(event, dayType)} onClick={() => addDay(dayType)} disabled={pattern.length >= 366} data-testid={`button-add-pattern-${index}`}><span className="pattern-palette-swatch" style={{ background: dayTypeColor(dayType, shiftColors) }} /><Plus size={12} /><span>{readableDayType(dayType)}</span></button>)}
         </div>
         <div className={`pattern-sequence${dropTarget === pattern.length ? ' is-drop-target' : ''}`} aria-label="Repeating roster sequence" data-testid="list-roster-pattern" onDragOver={event => { event.preventDefault(); setDropTarget(pattern.length); }} onDragLeave={() => setDropTarget(null)} onDrop={event => dropDay(event, pattern.length)}>
-          {pattern.map((dayType, index) => <div key={`${dayType}-${index}`} className={`pattern-step${dropTarget === index ? ' is-drop-target' : ''}`} role="listitem" style={{ '--shift-color': dayTypeColor(dayType, shiftColors) } as CSSProperties} data-testid={`pattern-step-${index}`} onDragOver={event => { event.preventDefault(); event.stopPropagation(); setDropTarget(index); }} onDragLeave={() => setDropTarget(null)} onDrop={event => dropDay(event, index)}>
+          {pattern.map((dayType, index) => <div key={`${dayType}-${index}`} className={`pattern-step${dropTarget === index ? ' is-drop-target' : ''}`} role="listitem" style={{ '--shift-color': dayTypeColor(dayType, shiftColors), '--shift-foreground': dayTypeTextColor(dayTypeColor(dayType, shiftColors)) } as CSSProperties} data-testid={`pattern-step-${index}`} onDragOver={event => { event.preventDefault(); event.stopPropagation(); setDropTarget(index); }} onDragLeave={() => setDropTarget(null)} onDrop={event => dropDay(event, index)}>
             <button type="button" className="pattern-drag-handle" draggable onDragStart={event => startSequenceDrag(event, index)} onDragEnd={() => setDropTarget(null)} aria-label={`Drag ${readableDayType(dayType)} day ${index + 1} to reorder`} title="Drag to reorder" data-testid={`button-drag-pattern-${index}`}><span className="pattern-step-number">{index + 1}</span><span>{readableDayType(dayType)}</span></button>
             <div className="pattern-step-actions">
               <button type="button" className="pattern-step-action" aria-label={`Move ${readableDayType(dayType)} day ${index + 1} earlier`} title="Move earlier" disabled={index === 0} onClick={() => moveDay(index, index - 1)} data-testid={`button-pattern-earlier-${index}`}><ChevronLeft size={13} /></button>

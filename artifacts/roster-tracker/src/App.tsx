@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from 'react';
 import { Link, Route, Switch, Router as WouterRouter, useLocation } from 'wouter';
 import { CalendarDays, CalendarRange, ChevronLeft, ChevronRight, Clock3, Download, FileUp, Heart, ImagePlus, Moon, NotebookPen, Plus, Search, Settings2, Sun, Trash2, UsersRound, X, Edit3, CalendarCheck2, Sparkles } from 'lucide-react';
-import { type DayType, type Entry, type EntryType, type Override, type Profile, type Store, DAY_TYPES, ENTRY_TYPES, compressPhoto, fmtDate, localDate, persistStore, readStore, rosterType, shiftDate, uid, validateStore } from '@/lib/roster';
+import { type DayType, type Entry, type EntryType, type Override, type Profile, type Store, DAY_TYPES, DEFAULT_DAY_TYPE_COLORS, ENTRY_TYPES, compressPhoto, dayTypeColor, fmtDate, localDate, normalizeStore, persistStore, readStore, rosterType, shiftDate, uid, validateStore } from '@/lib/roster';
 
 type ViewMode = 'month' | 'three' | 'year';
 const colors = ['#d9785c', '#4f8c83', '#d1a24e', '#7c82a9', '#b47786', '#6390a3', '#9b865c'];
@@ -83,6 +83,11 @@ function RosterTracker() {
   };
   const setTheme = (theme: 'light' | 'dark') => update(current => ({ ...current, preferences: { ...current.preferences, theme } }), 'Display preference saved.');
   const setCompact = (compact: boolean) => update(current => ({ ...current, preferences: { ...current.preferences, compact } }), 'Display preference saved.');
+  const setShiftColor = (type: DayType, color: string) => {
+    if (!/^#[0-9a-f]{6}$/i.test(color)) return;
+    update(current => ({ ...current, preferences: { ...current.preferences, dayTypeColors: { ...DEFAULT_DAY_TYPE_COLORS, ...current.preferences.dayTypeColors, [type]: color } } }), 'Shift color saved.');
+  };
+  const resetShiftColors = () => update(current => ({ ...current, preferences: { ...current.preferences, dayTypeColors: { ...DEFAULT_DAY_TYPE_COLORS } } }), 'Shift colors restored.');
   const exportBackup = () => {
     const blob = new Blob([JSON.stringify({ format: 'roster-tracker', version: 1, exportedAt: new Date().toISOString(), data: store }, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -103,7 +108,7 @@ function RosterTracker() {
         candidate = wrapper.data;
       }
       if (!validateStore(candidate)) throw new Error('The backup does not match the expected profile, roster, and entry format.');
-      const data = candidate as Store;
+      const data = normalizeStore(candidate as Store);
       if (data.overrides.some(o => !data.profiles.some(p => p.id === o.profileId)) || data.entries.some(e => e.profileId && !data.profiles.some(p => p.id === e.profileId))) {
         throw new Error('This backup refers to a profile that is missing. Your current data was not changed.');
       }
@@ -139,7 +144,7 @@ function RosterTracker() {
             <TimelinePage store={store} onEdit={(entry) => openDay(entry.date, entry.id)} onDelete={removeEntry} />
           </Route>
           <Route path="/settings">
-            <SettingsPage store={store} onSave={profileChanged} onDelete={deleteProfile} onToggleProfile={toggleProfile} onTheme={setTheme} onCompact={setCompact} onExport={exportBackup} onImport={() => importRef.current?.click()} memoryUse={memoryUse} />
+            <SettingsPage store={store} onSave={profileChanged} onDelete={deleteProfile} onToggleProfile={toggleProfile} onTheme={setTheme} onCompact={setCompact} onShiftColor={setShiftColor} onResetShiftColors={resetShiftColors} onExport={exportBackup} onImport={() => importRef.current?.click()} memoryUse={memoryUse} />
           </Route>
           <Route>
             <main className="page-wrap"><div className="empty-state"><div className="empty-mark"><CalendarDays /></div><h3>That page isn't on the calendar.</h3><Link href="/" className="btn primary" data-testid="link-return-calendar">Back to calendar</Link></div></main>
@@ -210,9 +215,9 @@ function CalendarPage({ store, view, setView, visibleDate, setVisibleDate, openD
         {view === 'month' && <MonthGrid monthDate={visibleDate} profiles={activeProfiles} store={store} openDay={openDay} compact={store.preferences.compact} />}
         {view === 'three' && <div className="three-months">{[0, 1, 2].map(offset => <MiniMonth key={`${year}-${visibleDate.getMonth() + offset}`} date={new Date(year, visibleDate.getMonth() + offset, 1)} profiles={activeProfiles} store={store} openDay={openDay} />)}</div>}
         {view === 'year' && <div className="year-grid">{Array.from({ length: 12 }, (_, month) => <MiniMonth key={month} date={new Date(year, month, 1)} profiles={activeProfiles} store={store} openDay={openDay} compact />)}</div>}
-        <div className="calendar-legend">
+     <div className="calendar-legend">
           {activeProfiles.map(p => <span className="legend-item" key={p.id} data-testid={`legend-profile-${p.id}`}><span className="legend-dot" style={{ background: p.color }} />{p.name}</span>)}
-          <span className="legend-item"><span className="legend-dot" style={{ background: '#d9ae64' }} />Annual leave</span>
+          {DAY_TYPES.map((type, index) => <span className="legend-item" key={type} data-testid={`legend-shift-${index}`}><span className="legend-dot" style={{ background: dayTypeColor(type, store.preferences.dayTypeColors) }} />{type === 'Day Shift' ? 'Day' : type === 'Night Shift' ? 'Night' : type === 'Days Off' ? 'Off' : type}</span>)}
         </div>
       </section>
       <aside className="stats-column">
@@ -270,7 +275,7 @@ function DayContents({ date, profiles, store, openDay, compact = false, inMonth 
   const entries = store.entries.filter(e => e.date === key);
   return <button type="button" className={`day-cell ${!inMonth ? 'outside' : ''} ${isToday ? 'today' : ''} ${hasLeave ? 'leave-day' : ''}`} data-testid={`button-calendar-day-${key}`} onClick={() => openDay(key)} aria-label={`${fmtDate(key)}, ${types.map(x => `${x.profile.name}: ${x.type}`).join(', ')}`}>
     <span className="day-number">{current}</span>
-    <div className="day-labels">{types.slice(0, compact ? 1 : 3).map(({ profile, type }) => <span key={profile.id} className={`shift-chip ${type === 'Days Off' ? 'off' : ''}`} style={{ '--profile-color': type === 'Annual Leave' ? '#d7a14f' : profile.color } as CSSProperties}>{type === 'Day Shift' ? 'Day' : type === 'Night Shift' ? 'Night' : type === 'Days Off' ? 'Off' : type === 'Annual Leave' ? 'Leave' : type}</span>)}{types.length > (compact ? 1 : 3) && <span className="shift-chip more-chip">+{types.length - (compact ? 1 : 3)}</span>}</div>
+    <div className="day-labels">{types.slice(0, compact ? 1 : 3).map(({ profile, type }) => <span key={profile.id} className={`shift-chip ${type === 'Days Off' ? 'off' : ''}`} title={`${profile.name}: ${type}`} style={{ '--profile-color': profile.color, '--shift-color': dayTypeColor(type, store.preferences.dayTypeColors) } as CSSProperties}>{type === 'Day Shift' ? 'Day' : type === 'Night Shift' ? 'Night' : type === 'Days Off' ? 'Off' : type === 'Annual Leave' ? 'Leave' : type}</span>)}{types.length > (compact ? 1 : 3) && <span className="shift-chip more-chip">+{types.length - (compact ? 1 : 3)}</span>}</div>
     {compact && hasLeave && <span className="entry-dot" aria-label="Annual leave" />}
     {entries.length > 0 && <span className="entry-dot" aria-label={`${entries.length} personal entries`} />}
   </button>;
@@ -295,7 +300,7 @@ function MiniMonth({ date, profiles, store, openDay, compact = false }: { date: 
         const isToday = key === today;
         const dayTypes = profiles.map(profile => ({ profile, type: rosterType(profile, key, store.overrides) }));
         const hasLeave = dayTypes.some(x => x.type === 'Annual Leave');
-        return <button key={key} className={`mini-day ${!inMonth ? 'off-month' : ''} ${isToday ? 'is-today' : ''} ${hasLeave ? 'has-leave' : ''}`} data-testid={`button-mini-day-${key}`} aria-label={`${fmtDate(key)}${dayTypes.length ? `, ${dayTypes.map(x => `${x.profile.name}: ${x.type}`).join(', ')}` : ''}`} onClick={() => openDay(key)}>{d.getDate()}{!compact && <span className="mini-indicators">{dayTypes.slice(0, 4).map(x => <i key={x.profile.id} style={{ background: x.type === 'Annual Leave' ? '#d7a14f' : x.profile.color }} />)}</span>}</button>;
+        return <button key={key} className={`mini-day ${!inMonth ? 'off-month' : ''} ${isToday ? 'is-today' : ''} ${hasLeave ? 'has-leave' : ''}`} data-testid={`button-mini-day-${key}`} aria-label={`${fmtDate(key)}${dayTypes.length ? `, ${dayTypes.map(x => `${x.profile.name}: ${x.type}`).join(', ')}` : ''}`} onClick={() => openDay(key)}>{d.getDate()}{!compact && <span className="mini-indicators">{dayTypes.slice(0, 4).map(x => <i key={x.profile.id} style={{ background: dayTypeColor(x.type, store.preferences.dayTypeColors) }} />)}</span>}</button>;
       })}
     </div>
   </div>;
@@ -367,21 +372,22 @@ function TimelinePage({ store, onEdit, onDelete }: { store: Store; onEdit: (entr
   </main>;
 }
 
-function SettingsPage({ store, onSave, onDelete, onToggleProfile, onTheme, onCompact, onExport, onImport, memoryUse }: { store: Store; onSave: (profile: Profile) => boolean; onDelete: (id: string) => void; onToggleProfile: (id: string) => void; onTheme: (theme: 'light' | 'dark') => void; onCompact: (compact: boolean) => void; onExport: () => void; onImport: () => void; memoryUse: number }) {
+function SettingsPage({ store, onSave, onDelete, onToggleProfile, onTheme, onCompact, onShiftColor, onResetShiftColors, onExport, onImport, memoryUse }: { store: Store; onSave: (profile: Profile) => boolean; onDelete: (id: string) => void; onToggleProfile: (id: string) => void; onTheme: (theme: 'light' | 'dark') => void; onCompact: (compact: boolean) => void; onShiftColor: (type: DayType, color: string) => void; onResetShiftColors: () => void; onExport: () => void; onImport: () => void; memoryUse: number }) {
   const [editing, setEditing] = useState<string | 'new' | null>(null);
+  const shiftColors = store.preferences.dayTypeColors ?? DEFAULT_DAY_TYPE_COLORS;
   return <main className="page-wrap">
     <div className="page-heading"><div><div className="eyebrow">Settle things your way</div><h1 className="page-title">Your roster, your rules.</h1><p className="page-subtitle">Keep family schedules together. Your information stays in this browser.</p></div><button className="btn primary" data-testid="button-add-profile" onClick={() => setEditing('new')}><Plus size={15} /> Add a roster</button></div>
     <div className="settings-layout">
       <section className="panel settings-panel">
         <h2 className="panel-heading">People & patterns <UsersRound size={17} /></h2>
         {store.profiles.length === 0 && editing !== 'new' && <div className="empty-state" style={{ padding: '30px 10px' }}><div className="empty-mark"><UsersRound size={19} /></div><h3>Start with one roster.</h3><p>Add the pattern that shapes your weeks. You can always change it later.</p><button className="btn primary" data-testid="button-first-profile" onClick={() => setEditing('new')}>Add a person</button></div>}
-        {store.profiles.map(profile => editing === profile.id ? <ProfileForm key={profile.id} profile={profile} onSave={p => { if (onSave(p)) setEditing(null); }} onCancel={() => setEditing(null)} /> : <div className="profile-card" key={profile.id} data-testid={`card-profile-${profile.id}`}>
+        {store.profiles.map(profile => editing === profile.id ? <ProfileForm key={profile.id} profile={profile} shiftColors={shiftColors} onSave={p => { if (onSave(p)) setEditing(null); }} onCancel={() => setEditing(null)} /> : <div className="profile-card" key={profile.id} data-testid={`card-profile-${profile.id}`}>
           <div className="profile-card-head"><div><div className="profile-name-row"><span className="color-swatch" style={{ background: profile.color }} />{profile.name}{!profile.enabled && <span className="subtle">(paused)</span>}</div><div className="profile-detail">Pattern starts {fmtDate(profile.startDate)}{profile.annualAllowance ? ` · ${profile.annualAllowance} leave days / year` : ''}</div></div>
             <div className="profile-controls"><label className="profile-toggle"><input type="checkbox" checked={profile.visible} onChange={() => onToggleProfile(profile.id)} data-testid={`input-profile-visible-${profile.id}`} /> Show</label><button className="btn small" data-testid={`button-edit-profile-${profile.id}`} onClick={() => setEditing(profile.id)}><Edit3 size={12} /> Edit</button><button className="icon-btn" aria-label={`Delete ${profile.name}`} data-testid={`button-delete-profile-${profile.id}`} onClick={() => onDelete(profile.id)}><Trash2 size={14} /></button></div>
           </div>
-          <div className="profile-pattern">{profile.pattern.map((item, index) => <span className="pattern-pill" key={`${profile.id}-${index}`} data-testid={`pattern-day-${profile.id}-${index}`}>{item === 'Day Shift' ? 'Day' : item === 'Night Shift' ? 'Night' : item === 'Days Off' ? 'Off' : item}</span>)}</div>
+          <div className="profile-pattern">{profile.pattern.map((item, index) => <span className="pattern-pill" key={`${profile.id}-${index}`} style={{ '--shift-color': dayTypeColor(item, shiftColors) } as CSSProperties} data-testid={`pattern-day-${profile.id}-${index}`}>{item === 'Day Shift' ? 'Day' : item === 'Night Shift' ? 'Night' : item === 'Days Off' ? 'Off' : item}</span>)}</div>
         </div>)}
-        {editing === 'new' && <ProfileForm profile={null} onSave={p => { if (onSave(p)) setEditing(null); }} onCancel={() => setEditing(null)} />}
+        {editing === 'new' && <ProfileForm profile={null} shiftColors={shiftColors} onSave={p => { if (onSave(p)) setEditing(null); }} onCancel={() => setEditing(null)} />}
       </section>
       <div style={{ display: 'grid', gap: 17 }}>
         <section className="panel settings-panel">
@@ -389,6 +395,17 @@ function SettingsPage({ store, onSave, onDelete, onToggleProfile, onTheme, onCom
           <div className="form-field">Color of the page<select data-testid="select-theme" value={store.preferences.theme} onChange={e => onTheme(e.target.value as 'light' | 'dark')}><option value="light">Daylight paper</option><option value="dark">Quiet evening</option></select></div>
           <label className="profile-toggle" style={{ marginTop: 17 }}><input type="checkbox" checked={store.preferences.compact} onChange={e => onCompact(e.target.checked)} data-testid="input-compact-display" /> Compact roster labels</label>
           <p className="subtle">Your choice is remembered on this device.</p>
+        </section>
+        <section className="panel settings-panel">
+          <div className="shift-colors-heading"><div><h2 className="panel-heading">Shift colors <CalendarRange size={16} /></h2><p className="subtle">Choose a color for each roster day type. Day shifts start yellow and night shifts blue.</p></div></div>
+          <div className="shift-color-grid">
+            {DAY_TYPES.map((type, index) => <label className="shift-color-control" key={type} data-testid={`shift-color-setting-${index}`}>
+              <span className="shift-color-preview" style={{ background: dayTypeColor(type, shiftColors) }} />
+              <span className="shift-color-name">{type === 'Day Shift' ? 'Day shift' : type === 'Night Shift' ? 'Night shift' : type}</span>
+              <input type="color" aria-label={`${type} color`} value={dayTypeColor(type, shiftColors)} onChange={e => onShiftColor(type, e.target.value)} data-testid={`input-shift-color-${index}`} />
+            </label>)}
+          </div>
+          <button className="btn small" style={{ marginTop: 12 }} onClick={onResetShiftColors} data-testid="button-reset-shift-colors">Restore default colors</button>
         </section>
         <section className="panel settings-panel">
           <h2 className="panel-heading">Keep a copy <Heart size={16} /></h2>
@@ -405,7 +422,7 @@ function SettingsPage({ store, onSave, onDelete, onToggleProfile, onTheme, onCom
   </main>;
 }
 
-function ProfileForm({ profile, onSave, onCancel }: { profile: Profile | null; onSave: (profile: Profile) => void; onCancel: () => void }) {
+function ProfileForm({ profile, shiftColors, onSave, onCancel }: { profile: Profile | null; shiftColors?: Partial<Record<DayType, string>>; onSave: (profile: Profile) => void; onCancel: () => void }) {
   const [name, setName] = useState(profile?.name ?? '');
   const [color, setColor] = useState(profile?.color ?? colors[0]);
   const [startDate, setStartDate] = useState(profile?.startDate ?? today);
@@ -517,10 +534,10 @@ function ProfileForm({ profile, onSave, onCancel }: { profile: Profile | null; o
         <div className="pattern-builder-heading"><span>Build your repeating sequence</span><span>{pattern.length} {pattern.length === 1 ? 'day' : 'days'}</span></div>
         <span className="subtle">Drag a shift onto a day to place it before that day, or drop it in the open space at the end. Tap a shift type to add it at the end.</span>
         <div className="pattern-palette" aria-label="Available shift types">
-          {DAY_TYPES.map((dayType, index) => <button key={dayType} type="button" className="pattern-palette-item" draggable={pattern.length < 366} onDragStart={event => startPaletteDrag(event, dayType)} onClick={() => addDay(dayType)} disabled={pattern.length >= 366} data-testid={`button-add-pattern-${index}`}><Plus size={12} /><span>{readableDayType(dayType)}</span></button>)}
+          {DAY_TYPES.map((dayType, index) => <button key={dayType} type="button" className="pattern-palette-item" draggable={pattern.length < 366} onDragStart={event => startPaletteDrag(event, dayType)} onClick={() => addDay(dayType)} disabled={pattern.length >= 366} data-testid={`button-add-pattern-${index}`}><span className="pattern-palette-swatch" style={{ background: dayTypeColor(dayType, shiftColors) }} /><Plus size={12} /><span>{readableDayType(dayType)}</span></button>)}
         </div>
         <div className={`pattern-sequence${dropTarget === pattern.length ? ' is-drop-target' : ''}`} aria-label="Repeating roster sequence" data-testid="list-roster-pattern" onDragOver={event => { event.preventDefault(); setDropTarget(pattern.length); }} onDragLeave={() => setDropTarget(null)} onDrop={event => dropDay(event, pattern.length)}>
-          {pattern.map((dayType, index) => <div key={`${dayType}-${index}`} className={`pattern-step${dropTarget === index ? ' is-drop-target' : ''}`} role="listitem" data-testid={`pattern-step-${index}`} onDragOver={event => { event.preventDefault(); event.stopPropagation(); setDropTarget(index); }} onDragLeave={() => setDropTarget(null)} onDrop={event => dropDay(event, index)}>
+          {pattern.map((dayType, index) => <div key={`${dayType}-${index}`} className={`pattern-step${dropTarget === index ? ' is-drop-target' : ''}`} role="listitem" style={{ '--shift-color': dayTypeColor(dayType, shiftColors) } as CSSProperties} data-testid={`pattern-step-${index}`} onDragOver={event => { event.preventDefault(); event.stopPropagation(); setDropTarget(index); }} onDragLeave={() => setDropTarget(null)} onDrop={event => dropDay(event, index)}>
             <button type="button" className="pattern-drag-handle" draggable onDragStart={event => startSequenceDrag(event, index)} onDragEnd={() => setDropTarget(null)} aria-label={`Drag ${readableDayType(dayType)} day ${index + 1} to reorder`} title="Drag to reorder" data-testid={`button-drag-pattern-${index}`}><span className="pattern-step-number">{index + 1}</span><span>{readableDayType(dayType)}</span></button>
             <div className="pattern-step-actions">
               <button type="button" className="pattern-step-action" aria-label={`Move ${readableDayType(dayType)} day ${index + 1} earlier`} title="Move earlier" disabled={index === 0} onClick={() => moveDay(index, index - 1)} data-testid={`button-pattern-earlier-${index}`}><ChevronLeft size={13} /></button>

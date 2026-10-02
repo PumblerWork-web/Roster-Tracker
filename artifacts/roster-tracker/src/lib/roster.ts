@@ -1,15 +1,17 @@
-export type DayType = 'Day Shift' | 'Night Shift' | 'Days Off' | 'Annual Leave' | 'Public Holiday' | 'Sick Leave' | 'Training' | 'Travel Day' | 'Custom Event';
+export type DayType = 'Day Shift' | 'Half Day Shift' | 'Night Shift' | 'Half Night Shift' | 'Days Off' | 'Annual Leave' | 'Public Holiday' | 'Sick Leave' | 'Training' | 'Travel Day' | 'Custom Event';
 export type EntryType = 'note' | 'event' | 'memory' | 'appointment' | 'custom';
 export type Profile = { id: string; name: string; color: string; visible: boolean; enabled: boolean; startDate: string; pattern: DayType[]; annualAllowance?: number; dayShiftStart?: string; dayShiftEnd?: string; nightShiftStart?: string; nightShiftEnd?: string };
 export type Override = { id: string; profileId: string; date: string; dayType: DayType; label?: string; note?: string; workedHoliday?: boolean };
 export type Entry = { id: string; date: string; profileId?: string; type: EntryType; title: string; text: string; photo?: string; createdAt: string; updatedAt: string };
 export type Store = { profiles: Profile[]; overrides: Override[]; entries: Entry[]; preferences: { theme: 'light' | 'dark'; compact: boolean; dayTypeColors?: Partial<Record<DayType, string>> } };
 
-export const DAY_TYPES: DayType[] = ['Day Shift', 'Night Shift', 'Days Off', 'Annual Leave', 'Public Holiday', 'Sick Leave', 'Training', 'Travel Day', 'Custom Event'];
+export const DAY_TYPES: DayType[] = ['Day Shift', 'Half Day Shift', 'Night Shift', 'Half Night Shift', 'Days Off', 'Annual Leave', 'Public Holiday', 'Sick Leave', 'Training', 'Travel Day', 'Custom Event'];
 export const DEFAULT_SHIFT_TIMES = { dayShiftStart: '06:00', dayShiftEnd: '18:00', nightShiftStart: '18:00', nightShiftEnd: '06:00' } as const;
 export const DEFAULT_DAY_TYPE_COLORS: Record<DayType, string> = {
   'Day Shift': '#f2c94c',
+  'Half Day Shift': '#f7e29b',
   'Night Shift': '#2f63b8',
+  'Half Night Shift': '#8fb0e6',
   'Days Off': '#8caaa0',
   'Annual Leave': '#dc9850',
   'Public Holiday': '#c46e4f',
@@ -89,10 +91,18 @@ export const rosterType = (profile: Profile, date: string, overrides: Override[]
   const offset = Math.round((current - start) / 86400000);
   return profile.pattern[((offset % profile.pattern.length) + profile.pattern.length) % profile.pattern.length];
 };
-export function getShiftTimes(profile: Profile, type: 'Day Shift' | 'Night Shift') {
-  return type === 'Day Shift'
-    ? { start: profile.dayShiftStart ?? DEFAULT_SHIFT_TIMES.dayShiftStart, end: profile.dayShiftEnd ?? DEFAULT_SHIFT_TIMES.dayShiftEnd }
-    : { start: profile.nightShiftStart ?? DEFAULT_SHIFT_TIMES.nightShiftStart, end: profile.nightShiftEnd ?? DEFAULT_SHIFT_TIMES.nightShiftEnd };
+export type ShiftType = 'Day Shift' | 'Half Day Shift' | 'Night Shift' | 'Half Night Shift';
+export const isShiftType = (type: DayType): type is ShiftType => type === 'Day Shift' || type === 'Half Day Shift' || type === 'Night Shift' || type === 'Half Night Shift';
+export const isNightShift = (type: DayType) => type === 'Night Shift' || type === 'Half Night Shift';
+export const isHalfShift = (type: DayType) => type === 'Half Day Shift' || type === 'Half Night Shift';
+export function getShiftTimes(profile: Profile, type: ShiftType) {
+  const full = isNightShift(type)
+    ? { start: profile.nightShiftStart ?? DEFAULT_SHIFT_TIMES.nightShiftStart, end: profile.nightShiftEnd ?? DEFAULT_SHIFT_TIMES.nightShiftEnd }
+    : { start: profile.dayShiftStart ?? DEFAULT_SHIFT_TIMES.dayShiftStart, end: profile.dayShiftEnd ?? DEFAULT_SHIFT_TIMES.dayShiftEnd };
+  if (!isHalfShift(type)) return full;
+  const [hours, minutes] = full.start.split(':').map(Number);
+  const total = (hours * 60 + minutes + Math.round(shiftDurationMinutes(full.start, full.end) / 2)) % 1440;
+  return { start: full.start, end: `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}` };
 }
 export function shiftDurationMinutes(start: string, end: string) {
   const toMinutes = (value: string) => {
@@ -115,7 +125,7 @@ export function calculateMonthShiftHours(profile: Profile, year: number, month: 
 
   while (cursor < monthEnd) {
     const type = rosterType(profile, localDate(cursor), overrides);
-    if (type === 'Day Shift' || type === 'Night Shift') {
+    if (isShiftType(type)) {
       const { start: startTime, end: endTime } = getShiftTimes(profile, type);
       const [startHour, startMinute] = startTime.split(':').map(Number);
       const [endHour, endMinute] = endTime.split(':').map(Number);
@@ -127,7 +137,7 @@ export function calculateMonthShiftHours(profile: Profile, year: number, month: 
       const overlapStart = Math.max(shiftStart.getTime(), monthStart.getTime());
       const overlapEnd = Math.min(shiftEnd.getTime(), monthEnd.getTime());
       const overlapMinutes = Math.max(0, (overlapEnd - overlapStart) / 60000);
-      if (type === 'Day Shift') dayMinutes += overlapMinutes;
+      if (!isNightShift(type)) dayMinutes += overlapMinutes;
       else nightMinutes += overlapMinutes;
     }
     cursor.setDate(cursor.getDate() + 1);

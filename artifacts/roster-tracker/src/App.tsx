@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type DragEvent } from 'react';
 import { Link, Route, Switch, Router as WouterRouter, useLocation } from 'wouter';
 import { CalendarDays, CalendarRange, ChevronLeft, ChevronRight, Clock3, Download, FileUp, Heart, Moon, Plus, Settings2, Sun, Trash2, UsersRound, X, Edit3, CalendarCheck2, Sparkles } from 'lucide-react';
-import { type DayType, type Entry, type EntryType, type Override, type Profile, type Store, DAY_TYPES, DEFAULT_DAY_TYPE_COLORS, DEFAULT_SHIFT_TIMES, ENTRY_TYPES, calculateMonthShiftHours, dayTypeColor, dayTypeTextColor, fmtDate, formatHours, getShiftTimes, localDate, normalizeStore, persistStore, readStore, rosterType, shiftDate, shiftDurationMinutes, uid, validateStore } from '@/lib/roster';
+import { type DayType, type Entry, type EntryType, type Override, type Profile, type ShiftType, type Store, DAY_TYPES, DEFAULT_DAY_TYPE_COLORS, DEFAULT_SHIFT_TIMES, ENTRY_TYPES, calculateMonthShiftHours, dayTypeColor, isNightShift, isShiftType, dayTypeTextColor, fmtDate, formatHours, getShiftTimes, localDate, normalizeStore, persistStore, readStore, rosterType, shiftDate, shiftDurationMinutes, uid, validateStore } from '@/lib/roster';
 
 type ViewMode = 'month' | 'three' | 'year';
 const colors = ['#d9785c', '#4f8c83', '#d1a24e', '#7c82a9', '#b47786', '#6390a3', '#9b865c'];
@@ -12,6 +12,8 @@ const dateParts = (date: string) => new Date(`${date}T12:00:00`);
 const humanType = (type: EntryType) => type === 'custom' ? 'Custom' : type.charAt(0).toUpperCase() + type.slice(1);
 const shortDayType = (type: DayType) => ({
   'Day Shift': 'Day',
+  'Half Day Shift': 'Half Day',
+  'Half Night Shift': 'Half Night',
   'Night Shift': 'Night',
   'Days Off': 'Off',
   'Annual Leave': 'Leave',
@@ -21,12 +23,12 @@ const shortDayType = (type: DayType) => ({
   'Travel Day': 'Travel',
   'Custom Event': 'Event',
 })[type];
-const shiftTimeSummary = (profile: Profile, type: 'Day Shift' | 'Night Shift') => {
+const shiftTimeSummary = (profile: Profile, type: ShiftType) => {
   const { start, end } = getShiftTimes(profile, type);
   return `${start}–${end} · ${formatHours(shiftDurationMinutes(start, end))}`;
 };
 const calendarShiftLabel = (profile: Profile, type: DayType) =>
-  type === 'Day Shift' || type === 'Night Shift'
+  isShiftType(type)
     ? `${shortDayType(type)} ${formatHours(shiftDurationMinutes(getShiftTimes(profile, type).start, getShiftTimes(profile, type).end))}`
     : shortDayType(type);
 
@@ -230,7 +232,7 @@ function CalendarPage({ store, view, setView, visibleDate, setVisibleDate, openD
         {view === 'year' && <div className="year-grid">{Array.from({ length: 12 }, (_, month) => <MiniMonth key={month} date={new Date(year, month, 1)} profiles={activeProfiles} store={store} openDay={openDay} compact />)}</div>}
      <div className="calendar-legend">
           {activeProfiles.map(p => <span className="legend-item" key={p.id} data-testid={`legend-profile-${p.id}`}><span className="legend-dot" style={{ background: p.color }} />{p.name}</span>)}
-          {DAY_TYPES.map((type, index) => <span className="legend-item" key={type} data-testid={`legend-shift-${index}`}><span className="legend-dot" style={{ background: dayTypeColor(type, store.preferences.dayTypeColors) }} />{type === 'Day Shift' ? 'Day' : type === 'Night Shift' ? 'Night' : type === 'Days Off' ? 'Off' : type}</span>)}
+          {DAY_TYPES.map((type, index) => <span className="legend-item" key={type} data-testid={`legend-shift-${index}`}><span className="legend-dot" style={{ background: dayTypeColor(type, store.preferences.dayTypeColors) }} />{type === 'Day Shift' ? 'Day' : type === 'Night Shift' ? 'Night' : type === 'Half Day Shift' ? 'Half Day' : type === 'Half Night Shift' ? 'Half Night' : type === 'Days Off' ? 'Off' : type}</span>)}
         </div>
       </section>
       <aside className="stats-column">
@@ -350,8 +352,8 @@ function calculateStats(profile: Profile, year: number, overrides: Override[]) {
   for (let i = 0; i < 365 + (new Date(year, 1, 29).getMonth() === 1 ? 1 : 0); i++) {
     const date = new Date(year, 0, 1 + i);
     const type = rosterType(profile, localDate(date), overrides);
-    if (type === 'Day Shift' || type === 'Night Shift' || type === 'Training' || type === 'Travel Day') worked++;
-    if (type === 'Night Shift') nights++;
+    if (isShiftType(type) || type === 'Training' || type === 'Travel Day') worked++;
+    if (isNightShift(type)) nights++;
     if (type === 'Annual Leave') {
       leave++;
       if (nextLeave === null && localDate(date) >= today) nextLeave = Math.ceil((dateParts(localDate(date)).getTime() - dateParts(today).getTime()) / 86400000);
@@ -533,7 +535,7 @@ function ProfileForm({ profile, shiftColors, onSave, onCancel }: { profile: Prof
     setPatternMessage('');
   };
   const patternValid = pattern.length > 0 && pattern.length <= 366 && pattern.every(type => DAY_TYPES.includes(type));
-  const readableDayType = (type: DayType) => type === 'Day Shift' ? 'Day shift' : type === 'Night Shift' ? 'Night shift' : type;
+  const readableDayType = (type: DayType) => type === 'Day Shift' ? 'Day shift' : type === 'Night Shift' ? 'Night shift' : type === 'Half Day Shift' ? 'Half day shift' : type === 'Half Night Shift' ? 'Half night shift' : type;
   return <div className="profile-card" data-testid="form-profile">
     <h3 className="panel-heading">{profile ? 'Edit this roster' : 'A new roster'} <UsersRound size={15} /></h3>
     <div className="form-grid">
@@ -593,7 +595,7 @@ function OverrideEditor({ profile, date, current, onSave, onRemove }: { profile:
     <div className="override-top"><span><span className="color-swatch" style={{ background: profile.color, display: 'inline-block', marginRight: 7 }} />{profile.name}</span><span className="subtle">{current ? 'Changed' : 'Pattern day'}</span></div>
     <div className="form-grid">
       <label className="form-field span-2">Roster day<select data-testid={`select-override-type-${profile.id}`} value={type} onChange={e => setType(e.target.value as DayType)}>{DAY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></label>
-      {(type === 'Day Shift' || type === 'Night Shift') && <div className="form-field span-2 shift-time-summary" data-testid={`text-override-shift-time-${profile.id}`}>{type}: {shiftTimeSummary(profile, type)}</div>}
+      {isShiftType(type) && <div className="form-field span-2 shift-time-summary" data-testid={`text-override-shift-time-${profile.id}`}>{type}: {shiftTimeSummary(profile, type)}</div>}
       <label className="form-field span-2">Short label<input data-testid={`input-override-label-${profile.id}`} value={label} onChange={e => setLabel(e.target.value)} placeholder="Optional, e.g. swap with Sam" maxLength={70} /></label>
       <label className="form-field span-2">Details<textarea data-testid={`input-override-note-${profile.id}`} rows={2} value={note} onChange={e => setNote(e.target.value)} placeholder="A detail for this roster day" /></label>
     </div>
